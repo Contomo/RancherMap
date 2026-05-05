@@ -1,0 +1,19 @@
+bin/
+obj/
+*.user
+*.suo
+*.csproj.user
+.vs/
+# build outputs
+dist/
+out/
+publish/
+*.dll
+*.pdb
+
+# logs
+*.log
+
+# local game/tool paths
+*.local.*
+local.*
