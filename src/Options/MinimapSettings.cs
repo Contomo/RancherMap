@@ -1,78 +1,177 @@
 using System;
+using System.Collections.Generic;
 using MelonLoader;
 
 namespace rancher_minimap
 {
     internal sealed class MinimapSettings
     {
-        private const string CategoryName = "RancherMinimap";
+        public const string CategoryName = "RancherMinimap";
+        public const string CategoryLabel = "Rancher Minimap";
+        public const string RiderTitle = "Minimap";
+        public const int CurrentSchemaVersion = 58;
 
-        private readonly MelonPreferences_Entry<bool> _enabled;
-        private readonly MelonPreferences_Entry<bool> _rotateMap;
-        private readonly MelonPreferences_Entry<float> _size;
-        private readonly MelonPreferences_Entry<float> _zoom;
-        private readonly MelonPreferences_Entry<float> _opacity;
-        private readonly MelonPreferences_Entry<float> _iconScale;
-        private readonly MelonPreferences_Entry<float> _dynamicZoomMaxOut;
-        private readonly MelonPreferences_Entry<bool> _showMarkers;
-        private readonly MelonPreferences_Entry<bool> _showMapBackground;
-        private readonly MelonPreferences_Entry<bool> _showDecorativeClouds;
-        private readonly MelonPreferences_Entry<float> _edgeOffsetPercent;
-        private readonly MelonPreferences_Entry<bool> _showPortalLines;
+        private readonly List<IMinimapOption> _menuOptions = new List<IMinimapOption>();
+
+        public readonly MinimapOption<bool, bool> EnabledOption;
+        public readonly MinimapOption<string, MinimapMapShape> MapShapeOption;
+        public readonly MinimapOption<bool, bool> RotateMapOption;
+        public readonly MinimapOption<float, float> SizePercentOption;
+        public readonly MinimapOption<float, float> EdgeOffsetPercentOption;
+        public readonly MinimapOption<float, float> ZoomOption;
+        public readonly MinimapOption<float, float> DynamicZoomMaxOutOption;
+        public readonly MinimapOption<float, float> OpacityOption;
+        public readonly MinimapOption<float, float> IconScaleOption;
+        public readonly MinimapOption<bool, bool> ShowMarkersOption;
+        public readonly MinimapOption<bool, bool> ShowMapBackgroundOption;
+        public readonly MinimapOption<bool, bool> ShowDecorativeCloudsOption;
+        public readonly MinimapOption<bool, bool> ShowPortalLinesOption;
+
 #if RMM_DIAGNOSTICS
-        private readonly MelonPreferences_Entry<bool> _diagnosticsEnabled;
-        private readonly MelonPreferences_Entry<bool> _performanceLoggingEnabled;
-        private readonly MelonPreferences_Entry<bool> _markerVisualDiagnosticsEnabled;
+        private readonly MinimapOption<bool, bool> _diagnosticsEnabled;
+        private readonly MinimapOption<bool, bool> _performanceLoggingEnabled;
+        private readonly MinimapOption<bool, bool> _markerVisualDiagnosticsEnabled;
 #endif
-        private readonly MelonPreferences_Entry<int> _schemaVersion;
+        private readonly MinimapOption<int, int> _schemaVersion;
 
         private float _saveAfter;
 
         private MinimapSettings(MelonPreferences_Category category)
         {
-            _enabled = category.CreateEntry("enabled", true, MinimapOptionText.EnabledLabel);
-            _rotateMap = category.CreateEntry("rotate_map", true, MinimapOptionText.RotateMapLabel);
-            _size = category.CreateEntry("size", 30.0f, MinimapOptionText.SizeLabel);
-            _zoom = category.CreateEntry("zoom", 2.0f, MinimapOptionText.ZoomLabel);
-            _opacity = category.CreateEntry("opacity", 1.00f, MinimapOptionText.OpacityLabel);
-            _iconScale = category.CreateEntry("icon_scale", 0.75f, MinimapOptionText.IconScaleLabel);
-            _dynamicZoomMaxOut = category.CreateEntry("dynamic_zoom_max_out", 0.1f, MinimapOptionText.DynamicZoomAmountLabel);
-            _showMarkers = category.CreateEntry("show_markers", true, MinimapOptionText.ShowMarkersLabel);
-            _showMapBackground = category.CreateEntry("show_map_background", true, MinimapOptionText.ShowMapBackgroundLabel);
-            _showDecorativeClouds = category.CreateEntry("show_decorative_clouds", true, MinimapOptionText.ShowDecorativeCloudsLabel);
-            _edgeOffsetPercent = category.CreateEntry("edge_offset_percent", 0.0f, MinimapOptionText.EdgeOffsetLabel);
-            _showPortalLines = category.CreateEntry("show_portal_lines", false, "Show Teleporter Lines");
+            EnabledOption = Add(MinimapOptions.Toggle(
+                category,
+                "enabled",
+                "Enabled",
+                "Show or hide the minimap overlay.",
+                true,
+                MarkDirty));
+
+            MapShapeOption = Add(MinimapOptions.MapShape(category, MarkDirty));
+
+            RotateMapOption = Add(MinimapOptions.Toggle(
+                category,
+                "rotate_map",
+                "Rotate map",
+                "Rotate the map around the player.",
+                true,
+                MarkDirty));
+
+            SizePercentOption = Add(MinimapOptions.FloatChoice(
+                category,
+                "size",
+                "Size",
+                "Minimap size as a percentage of the shorter screen edge.",
+                30.0f,
+                new[] { 10f, 12.5f, 15f, 17.5f, 20f, 22.5f, 25f, 27.5f, 30f, 32.5f, 35f, 37.5f, 40f, 45f, 50f, 55f, 60f },
+                v => $"{v:0.#}%",
+                MarkDirty));
+
+            EdgeOffsetPercentOption = Add(MinimapOptions.FloatChoice(
+                category,
+                "edge_offset_percent",
+                "Edge offset",
+                "Distance from the screen corner as a percentage of the shorter screen edge.",
+                0.0f,
+                new[] { 0f, 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f, 10f, 11f, 12f, 13f, 14f, 15f },
+                v => $"{v:0}%",
+                MarkDirty));
+
+            ZoomOption = Add(MinimapOptions.FloatChoice(
+                category,
+                "zoom",
+                "Zoom",
+                "Minimap zoom level.",
+                2.0f,
+                new[] { 0.50f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f, 5.0f, 5.5f, 6.0f },
+                v => $"{v:0.##}x",
+                MarkDirty));
+
+            DynamicZoomMaxOutOption = Add(MinimapOptions.FloatChoice(
+                category,
+                "dynamic_zoom_max_out",
+                "Dynamic zoom amount",
+                "Decrease the minimap zoom-in amount while moving.",
+                0.1f,
+                new[] { 0.0f, 0.05f, 0.10f, 0.15f, 0.20f, 0.25f, 0.35f, 0.50f, 0.75f, 1.0f },
+                v => v <= 0f ? "Off" : $"{v:0.##}x",
+                MarkDirty));
+
+            OpacityOption = Add(MinimapOptions.FloatChoice(
+                category,
+                "opacity",
+                "Opacity",
+                "Minimap opacity.",
+                1.00f,
+                new[] { 0.0f, 0.05f, 0.10f, 0.15f, 0.25f, 0.4f, 0.55f, 0.7f, 0.82f, 0.9f, 1.0f },
+                v => $"{v * 100f:0}%",
+                MarkDirty));
+
+            IconScaleOption = Add(MinimapOptions.FloatChoice(
+                category,
+                "icon_scale",
+                "Icon scale",
+                "Map marker icon scale.",
+                0.75f,
+                new[] { 0.10f, 0.20f, 0.33f, 0.50f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.5f, 5.0f, 7.5f, 10.0f },
+                v => $"{v:0.##}x",
+                MarkDirty));
+
+            ShowMarkersOption = Add(MinimapOptions.Toggle(
+                category,
+                "show_markers",
+                "Show gadgets",
+                "Show gadget markers on the minimap.",
+                true,
+                MarkDirty));
+
+            ShowMapBackgroundOption = Add(MinimapOptions.Toggle(
+                category,
+                "show_map_background",
+                "Map background",
+                "Show the animated vanilla map background layer in the minimap.",
+                true,
+                MarkDirty));
+
+            ShowDecorativeCloudsOption = Add(MinimapOptions.Toggle(
+                category,
+                "show_decorative_clouds",
+                "Clouds",
+                "Show the same decorative clouds as the large map does.",
+                true,
+                MarkDirty));
+
+            ShowPortalLinesOption = MinimapOptions.HiddenBool(
+                category,
+                "show_portal_lines",
+                "Show teleporter lines",
+                false,
+                MarkDirty);
+
 #if RMM_DIAGNOSTICS
-            _diagnosticsEnabled = category.CreateEntry("diagnostics_enabled", true, "Enable Diagnostics");
-            _performanceLoggingEnabled = category.CreateEntry("performance_logging_enabled", true, "Enable Performance Logging");
-            _markerVisualDiagnosticsEnabled = category.CreateEntry("marker_visual_diagnostics_enabled", true, "Enable Marker Visual Diagnostics");
+            _diagnosticsEnabled = MinimapOptions.HiddenBool(category, "diagnostics_enabled", "Enable Diagnostics", true, MarkDirty);
+            _performanceLoggingEnabled = MinimapOptions.HiddenBool(category, "performance_logging_enabled", "Enable Performance Logging", true, MarkDirty);
+            _markerVisualDiagnosticsEnabled = MinimapOptions.HiddenBool(category, "marker_visual_diagnostics_enabled", "Enable Marker Visual Diagnostics", true, MarkDirty);
 #endif
-            _schemaVersion = category.CreateEntry("schema_version", 55, "Settings Schema Version");
+            _schemaVersion = MinimapOptions.HiddenInt(category, "schema_version", "Settings Schema Version", CurrentSchemaVersion, MarkDirty);
             MigrateIfNeeded();
         }
 
-        public static MinimapSettings Load()
-        {
-            var category = MelonPreferences.CreateCategory(CategoryName, "Rancher Minimap");
-            return new MinimapSettings(category);
-        }
+        public IReadOnlyList<IMinimapOption> MenuOptions => _menuOptions;
 
-        private void MigrateIfNeeded()
-        {
-            if (_schemaVersion.Value >= 55)
-                return;
+        public bool Enabled { get => EnabledOption.Value; set => EnabledOption.Value = value; }
+        public MinimapMapShape MapShape { get => MapShapeOption.Value; set => MapShapeOption.Value = value; }
+        public bool RotateMap { get => RotateMapOption.Value; set => RotateMapOption.Value = value; }
+        public float SizePercent { get => SizePercentOption.Value; set => SizePercentOption.Value = value; }
+        public float EdgeOffsetPercent { get => EdgeOffsetPercentOption.Value; set => EdgeOffsetPercentOption.Value = value; }
+        public float Zoom { get => ZoomOption.Value; set => ZoomOption.Value = value; }
+        public float DynamicZoomMaxOut { get => DynamicZoomMaxOutOption.Value; set => DynamicZoomMaxOutOption.Value = value; }
+        public float Opacity { get => OpacityOption.Value; set => OpacityOption.Value = value; }
+        public float IconScale { get => IconScaleOption.Value; set => IconScaleOption.Value = value; }
+        public bool ShowMarkers { get => ShowMarkersOption.Value; set => ShowMarkersOption.Value = value; }
+        public bool ShowMapBackground { get => ShowMapBackgroundOption.Value; set => ShowMapBackgroundOption.Value = value; }
+        public bool ShowDecorativeClouds { get => ShowDecorativeCloudsOption.Value; set => ShowDecorativeCloudsOption.Value = value; }
+        public bool ShowPortalLines { get => ShowPortalLinesOption.Value; set => ShowPortalLinesOption.Value = value; }
 
-#if RMM_DIAGNOSTICS
-            _performanceLoggingEnabled.Value = true;
-            _markerVisualDiagnosticsEnabled.Value = true;
-#endif
-            _schemaVersion.Value = 55;
-            MelonPreferences.Save();
-        }
-
-        public bool Enabled { get => _enabled.Value; set => Set(_enabled, value); }
-        public bool RotateMap { get => _rotateMap.Value; set => Set(_rotateMap, value); }
-        public float SizePercent { get => Clamp(_size.Value, 10f, 60f); set => Set(_size, Clamp(value, 10f, 60f)); }
         public float SizePixels
         {
             get
@@ -81,16 +180,7 @@ namespace rancher_minimap
                 return viewportBasis * SizePercent * 0.01f;
             }
         }
-        public float Zoom { get => Clamp(_zoom.Value, 0.50f, 6.0f); set => Set(_zoom, Clamp(value, 0.50f, 6.0f)); }
-        public float Opacity { get => _opacity.Value; set => Set(_opacity, Clamp(value, 0.0f, 1.0f)); }
-        public float IconScale { get => _iconScale.Value; set => Set(_iconScale, Clamp(value, 0.10f, 5.0f)); }
-        public float DynamicZoomMaxOut { get => _dynamicZoomMaxOut.Value; set => Set(_dynamicZoomMaxOut, Clamp(value, 0.0f, 2.0f)); }
-        public bool ShowMarkers { get => _showMarkers.Value; set => Set(_showMarkers, value); }
-        public bool ShowMapBackground { get => _showMapBackground.Value; set => Set(_showMapBackground, value); }
-        public bool ShowDecorativeClouds { get => _showDecorativeClouds.Value; set => Set(_showDecorativeClouds, value); }
-        public string FogCloneKey => $"decorativeClouds:{ShowDecorativeClouds}|background:{ShowMapBackground}";
-        public float EdgeOffsetPercent { get => Clamp(_edgeOffsetPercent.Value, 0f, 15f); set => Set(_edgeOffsetPercent, Clamp(value, 0f, 15f)); }
-        public bool ShowPortalLines { get => _showPortalLines.Value; set => Set(_showPortalLines, value); }
+
 #if RMM_DIAGNOSTICS
         public bool DiagnosticsEnabled => _diagnosticsEnabled.Value;
         public bool PerformanceLoggingEnabled => _performanceLoggingEnabled.Value;
@@ -100,6 +190,12 @@ namespace rancher_minimap
         public bool PerformanceLoggingEnabled => false;
         public bool MarkerVisualDiagnosticsEnabled => false;
 #endif
+
+        public static MinimapSettings Load()
+        {
+            var category = MelonPreferences.CreateCategory(CategoryName, CategoryLabel);
+            return new MinimapSettings(category);
+        }
 
         public void TickPendingSave()
         {
@@ -115,15 +211,26 @@ namespace rancher_minimap
 
         public void MarkDirty() => _saveAfter = 5.0f;
 
-        private void Set<T>(MelonPreferences_Entry<T> entry, T value)
+        private TOption Add<TOption>(TOption option) where TOption : IMinimapOption
         {
-            if (Equals(entry.Value, value))
-                return;
-
-            entry.Value = value;
-            MarkDirty();
+            if (option.ShowInMenu)
+                _menuOptions.Add(option);
+            return option;
         }
 
-        private static float Clamp(float value, float min, float max) => Math.Min(max, Math.Max(min, value));
+        private void MigrateIfNeeded()
+        {
+            if (_schemaVersion.Value >= CurrentSchemaVersion)
+                return;
+
+            ShowPortalLinesOption.Value = false;
+
+#if RMM_DIAGNOSTICS
+            _performanceLoggingEnabled.Value = true;
+            _markerVisualDiagnosticsEnabled.Value = true;
+#endif
+            _schemaVersion.Value = CurrentSchemaVersion;
+            MelonPreferences.Save();
+        }
     }
 }

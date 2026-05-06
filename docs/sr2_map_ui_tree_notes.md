@@ -12,7 +12,7 @@ MapUI(Clone)                                      [MonomiPark.SlimeRancher.UI.Ma
    │  │                                          observed main-world: sprite=tilingBG, material=OscillatingWaterUI, rect=0x0
    │  │                                          MapDefinition.MapBackgroundOverlay is applied here by MapUI.SetImageProperties(...)
    │  ├─ Clouds                                  [Image] material=Map Vignette Clouds
-   │  │  ├─ ???? 
+   │  │  ├─ ????
    │  ├─ MapHolder
    │  │  ├─ RainbowIslandMap(Clone)              [MonomiPark.SlimeRancher.UI.Map.Map]
    │  │  │  observed area: x=-2000, y=-2600, w=4000, h=3800

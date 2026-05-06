@@ -10,7 +10,7 @@ namespace rancher_minimap
 {
     /// <summary>
     /// Owns every Unity object created for the minimap HUD.
-    /// 
+    ///
     /// The player indicator is rebuilt as our own Image from SR2's captured BeaIcon sprite.
     /// We do not clone PlayerMarker/FacingFrame/FacingArrow because those native UI branches are animated and quite distracting in the minimap.
     /// </summary>
@@ -29,30 +29,20 @@ namespace rancher_minimap
         private RectTransform _markerLayer;
         private RectTransform _cloudOverlayLayer;
         private RectTransform _playerLayer;
-        private RectTransform _playerMarkerRect;
-        private RectTransform _playerViewConePivotRect;
-        private RectTransform _playerViewConeRect;
-        private RectTransform _playerFacingFramePivotRect;
-        private RectTransform _playerFacingFrameRect;
-        private RectTransform _playerFacingArrowPivotRect;
-        private RectTransform _playerFacingArrowRect;
-        private RectTransform _playerBeaRect;
         private CanvasGroup _canvasGroup;
+        private Image _shapeMaskImage;
+        private RectMask2D _rectMask;
+        private Mask _shapeMask;
         private Sprite _markerSprite;
-        private Sprite _clipMaskSprite;
+        private Sprite _shapeMaskSprite;
         private GameObject _instancedMapVisual;
-        private Image _playerViewCone;
-        private Image _playerFacingFrame;
-        private Image _playerFacingArrow;
-        private Image _playerBeaIcon;
+        private PlayerMarkerView _playerMarker;
         private MapGeometry _mapGeometry;
         private string _attachedMapKey = "-";
         private string _attachedMapName = "-";
         private float _nextAttachAttempt;
-        private bool _loggedAttachedLayout;
         private bool _hasBuiltRoot;
-        private string _lastAppliedFogCloneKey = string.Empty;
-        private int _lastAppliedFogStateVersion = -1;
+        private string _lastAppliedFogStateKey = string.Empty;
         private int _attachedTemplateVersion = -1;
         private bool _staticMapVisualPrepared;
         private Vector2 _preparedNativeMapSize = new Vector2(float.NaN, float.NaN);
@@ -81,27 +71,17 @@ namespace rancher_minimap
             _markerLayer = null;
             _cloudOverlayLayer = null;
             _playerLayer = null;
-            _playerMarkerRect = null;
-            _playerViewConePivotRect = null;
-            _playerViewConeRect = null;
-            _playerFacingFramePivotRect = null;
-            _playerFacingFrameRect = null;
-            _playerFacingArrowPivotRect = null;
-            _playerFacingArrowRect = null;
-            _playerBeaRect = null;
-            _playerBeaIcon = null;
-            _playerViewCone = null;
-            _playerFacingFrame = null;
-            _playerFacingArrow = null;
             _canvasGroup = null;
+            _shapeMaskImage = null;
+            _rectMask = null;
+            _shapeMask = null;
+            _playerMarker = null;
             _instancedMapVisual = null;
             _mapGeometry = MapGeometry.Empty;
             _attachedMapKey = "-";
             _attachedMapName = "-";
             _nextAttachAttempt = 0f;
-            _loggedAttachedLayout = false;
-            _lastAppliedFogCloneKey = string.Empty;
-            _lastAppliedFogStateVersion = -1;
+            _lastAppliedFogStateKey = string.Empty;
             _attachedTemplateVersion = -1;
             ResetStaticMapVisualPreparation();
             _mapBackgroundOriginalAlpha.Clear();
@@ -115,12 +95,9 @@ namespace rancher_minimap
                 return;
 
             if (_hasBuiltRoot)
-            {
                 ClearRuntimeReferencesAfterUnityDestroyed("root destroyed by scene transition or Unity cleanup");
-            }
 
             _markerSprite = SpriteFactory.DiscSprite(new Color(1f, 0.82f, 0.22f, 0.95f));
-            _clipMaskSprite = SpriteFactory.SolidSprite(new Color(1f, 1f, 1f, 1f), 16);
 
             _root = new GameObject("Rancher_MinimapHUD");
             _hasBuiltRoot = true;
@@ -134,110 +111,53 @@ namespace rancher_minimap
             _canvasGroup.interactable = false;
             _canvasGroup.blocksRaycasts = false;
 
-            var widget = new GameObject("Widget");
-            widget.transform.SetParent(_root.transform, false);
-            _widgetRect = widget.AddComponent<RectTransform>();
+            _widgetRect = CreateRectTransform("Widget", _root.transform);
             UiRectTransforms.AnchorAt(_widgetRect, UiRectTransforms.TopRight, UiRectTransforms.TopRight);
 
-            var clip = new GameObject("Clip");
-            clip.transform.SetParent(_widgetRect, false);
-            _clipRect = clip.AddComponent<RectTransform>();
+            _clipRect = CreateRectTransform("Clip", _widgetRect);
             UiRectTransforms.StretchToParent(_clipRect);
 
-            var clipImage = clip.AddComponent<Image>();
-            clipImage.sprite = _clipMaskSprite;
-            clipImage.color = new Color(1f, 1f, 1f, 0f);
-            clipImage.raycastTarget = false;
+            _shapeMaskSprite ??= SpriteFactory.CircleMaskSprite(1024);
+            _shapeMaskImage = _clipRect.gameObject.AddComponent<Image>();
+            _shapeMaskImage.sprite = _shapeMaskSprite;
+            _shapeMaskImage.type = Image.Type.Simple;
+            _shapeMaskImage.preserveAspect = false;
+            _shapeMaskImage.raycastTarget = false;
+            _shapeMaskImage.maskable = false;
+            _shapeMaskImage.color = Color.white;
+            _shapeMaskImage.enabled = false;
 
-            clip.AddComponent<RectMask2D>();
+            _rectMask = _clipRect.gameObject.AddComponent<RectMask2D>();
+            _shapeMask = _clipRect.gameObject.AddComponent<Mask>();
+            _shapeMask.showMaskGraphic = false;
+            _shapeMask.enabled = false;
 
-            var rotator = new GameObject("Rotator");
-            rotator.transform.SetParent(_clipRect.transform, false);
-            _rotatorRect = rotator.AddComponent<RectTransform>();
+            _rotatorRect = CreateRectTransform("Rotator", _clipRect);
             UiRectTransforms.StretchToParent(_rotatorRect);
             _rotatorRect.pivot = UiRectTransforms.Center;
 
-            var map = new GameObject("MapContent");
-            map.transform.SetParent(_rotatorRect, false);
-            _mapRect = map.AddComponent<RectTransform>();
+            _mapRect = CreateRectTransform("MapContent", _rotatorRect);
             UiRectTransforms.AnchorAt(_mapRect, UiRectTransforms.Center, UiRectTransforms.Center);
 
-            var markers = new GameObject("Markers");
-            markers.transform.SetParent(_mapRect, false);
-            _markerLayer = markers.AddComponent<RectTransform>();
+            _markerLayer = CreateRectTransform("Markers", _mapRect);
             UiRectTransforms.StretchToParent(_markerLayer);
 
-            var clouds = new GameObject("CloudOverlay");
-            clouds.transform.SetParent(_mapRect, false);
-            _cloudOverlayLayer = clouds.AddComponent<RectTransform>();
+            _cloudOverlayLayer = CreateRectTransform("CloudOverlay", _mapRect);
             UiRectTransforms.StretchToParent(_cloudOverlayLayer);
 
-            var player = new GameObject("PlayerMarkerOverlay");
-            player.transform.SetParent(_clipRect.transform, false);
-            _playerLayer = player.AddComponent<RectTransform>();
+            _playerLayer = CreateRectTransform("PlayerMarkerOverlay", _clipRect);
             UiRectTransforms.StretchToParent(_playerLayer);
             _playerLayer.pivot = UiRectTransforms.Center;
+            _playerMarker = PlayerMarkerView.Create(_playerLayer);
 
-            _playerMarkerRect = new GameObject("PlayerMarker").AddComponent<RectTransform>();
-            _playerMarkerRect.SetParent(_playerLayer, false);
-            UiRectTransforms.CenterOnParent(_playerMarkerRect, Vector2.zero, new Vector2(64f, 64f));
+            ApplyClipShape();
+        }
 
-            var viewConePivot = new GameObject("ViewConePivot");
-            viewConePivot.transform.SetParent(_playerMarkerRect, false);
-            _playerViewConePivotRect = viewConePivot.AddComponent<RectTransform>();
-            UiRectTransforms.CenterOnParent(_playerViewConePivotRect, Vector2.zero);
-
-            var viewCone = new GameObject("ViewCone");
-            viewCone.transform.SetParent(_playerViewConePivotRect, false);
-            _playerViewConeRect = viewCone.AddComponent<RectTransform>();
-            UiRectTransforms.AnchorAt(_playerViewConeRect, UiRectTransforms.Center, new Vector2(0.5f, 0f));
-            _playerViewConeRect.anchoredPosition = Vector2.zero;
-            _playerViewConeRect.sizeDelta = new Vector2(96f, 96f);
-            _playerViewCone = viewCone.AddComponent<Image>();
-            _playerViewCone.raycastTarget = false;
-            _playerViewCone.maskable = true;
-            _playerViewCone.preserveAspect = true;
-            _playerViewCone.enabled = false;
-
-            var facingFramePivot = new GameObject("FacingFramePivot");
-            facingFramePivot.transform.SetParent(_playerMarkerRect, false);
-            _playerFacingFramePivotRect = facingFramePivot.AddComponent<RectTransform>();
-            UiRectTransforms.CenterOnParent(_playerFacingFramePivotRect, Vector2.zero);
-
-            var facingFrame = new GameObject("FacingFrame");
-            facingFrame.transform.SetParent(_playerFacingFramePivotRect, false);
-            _playerFacingFrameRect = facingFrame.AddComponent<RectTransform>();
-            UiRectTransforms.CenterOnParent(_playerFacingFrameRect, Vector2.zero, new Vector2(64f, 64f));
-            _playerFacingFrame = facingFrame.AddComponent<Image>();
-            _playerFacingFrame.raycastTarget = false;
-            _playerFacingFrame.maskable = true;
-            _playerFacingFrame.preserveAspect = true;
-            _playerFacingFrame.enabled = false;
-
-            var facingArrowPivot = new GameObject("FacingArrowPivot");
-            facingArrowPivot.transform.SetParent(_playerMarkerRect, false);
-            _playerFacingArrowPivotRect = facingArrowPivot.AddComponent<RectTransform>();
-            UiRectTransforms.CenterOnParent(_playerFacingArrowPivotRect, Vector2.zero);
-
-            var facingArrow = new GameObject("FacingArrow");
-            facingArrow.transform.SetParent(_playerFacingArrowPivotRect, false);
-            _playerFacingArrowRect = facingArrow.AddComponent<RectTransform>();
-            UiRectTransforms.CenterOnParent(_playerFacingArrowRect, Vector2.zero, new Vector2(64f, 64f));
-            _playerFacingArrow = facingArrow.AddComponent<Image>();
-            _playerFacingArrow.raycastTarget = false;
-            _playerFacingArrow.maskable = true;
-            _playerFacingArrow.preserveAspect = true;
-            _playerFacingArrow.enabled = false;
-
-            var bea = new GameObject("BeaIcon");
-            bea.transform.SetParent(_playerMarkerRect, false);
-            _playerBeaRect = bea.AddComponent<RectTransform>();
-            UiRectTransforms.CenterOnParent(_playerBeaRect, Vector2.zero, new Vector2(36f, 36f));
-            _playerBeaIcon = bea.AddComponent<Image>();
-            _playerBeaIcon.raycastTarget = false;
-            _playerBeaIcon.maskable = true;
-            _playerBeaIcon.preserveAspect = true;
-            _playerBeaIcon.enabled = false;
+        private static RectTransform CreateRectTransform(string name, Transform parent)
+        {
+            var obj = new GameObject(name);
+            obj.transform.SetParent(parent, false);
+            return obj.AddComponent<RectTransform>();
         }
 
         public void SetVisible(bool visible)
@@ -257,6 +177,7 @@ namespace rancher_minimap
             _widgetRect.anchoredPosition = new Vector2(-edgeOffset, -edgeOffset);
             _widgetRect.sizeDelta = new Vector2(size, size);
             UiRectTransforms.StretchToParent(_clipRect);
+            ApplyClipShape();
             var yawUi = -yawDegrees;
             var mapRotationZ = _settings.RotateMap ? yawDegrees : 0f;
 
@@ -279,11 +200,10 @@ namespace rancher_minimap
             _mapRect.localRotation = Quaternion.Euler(0f, 0f, mapRotationZ);
             _mapRect.localScale = Vector3.one * zoom;
             ApplyStaticMapVisualStateIfNeeded(nativeMapSize);
-            ApplyFogStatesIfChanged();
+            SyncFogRevealStateIfNeeded();
             ApplyMapBackgroundOpacity();
 
-            var rawPlayerLocal = ProjectWorldToMapLocal(playerWorld, mapArea);
-            var playerLocal = rawPlayerLocal;
+            var playerLocal = ProjectWorldToMapLocal(playerWorld, mapArea);
             var rotatedPlayerLocal = RotatePoint(playerLocal, mapRotationZ);
             _mapRect.anchoredPosition = -rotatedPlayerLocal * zoom;
             MapPortalLineOverlays.Update(_instancedMapVisual, _settings.ShowPortalLines);
@@ -291,26 +211,23 @@ namespace rancher_minimap
             if (_playerLayer != null && !_playerLayer.gameObject.activeSelf)
                 _playerLayer.gameObject.SetActive(true);
 
-            EnsurePlayerMarkerVisual();
-            UpdatePlayerMarker(yawUi, playerLocal, mapRotationZ, zoom);
+            _playerMarker?.RefreshSprites();
+            UpdatePlayerMarker(yawUi);
 
             _canvasGroup.alpha = _settings.Opacity;
 
-            _loggedAttachedLayout = _loggedAttachedLayout || _instancedMapVisual != null;
         }
 
-
-        private void ApplyFogStatesIfChanged()
+        private void SyncFogRevealStateIfNeeded()
         {
             if (_instancedMapVisual == null)
                 return;
 
-            var key = _settings.FogCloneKey + "|state:" + MapVisualCapture.FogStateVersion + "|map:" + _attachedMapKey;
-            if (string.Equals(_lastAppliedFogCloneKey, key, StringComparison.Ordinal))
+            var key = "state:" + MapVisualCapture.FogStateVersion + "|map:" + _attachedMapKey;
+            if (string.Equals(_lastAppliedFogStateKey, key, StringComparison.Ordinal))
                 return;
 
-            _lastAppliedFogCloneKey = key;
-            _lastAppliedFogStateVersion = MapVisualCapture.FogStateVersion;
+            _lastAppliedFogStateKey = key;
             MapVisualCapture.ApplyCapturedFogStates(_instancedMapVisual, _attachedMapKey, "hud-fog-state-sync");
         }
 
@@ -656,19 +573,18 @@ namespace rancher_minimap
             return changed;
         }
 
-        public void UpdateMarkers(IReadOnlyList<MarkerSnapshot> markers, MapProjection projection)
+        public void UpdateMarkers(IReadOnlyList<MarkerSnapshot> markers)
         {
             if (_markerLayer == null || !_settings.ShowMarkers)
             {
                 foreach (var view in _markerViews.Values)
-                    view.SetActive(false);
+                    SetMarkerRootActive(view, false);
                 return;
             }
 
             markers ??= Array.Empty<MarkerSnapshot>();
             var mapArea = GetCurrentMapArea();
-            var zoom = _mapRect != null ? Mathf.Max(0.01f, _mapRect.localScale.x) : 1f;
-            var markerScreenScale = Mathf.Clamp(_settings.IconScale, 0.01f, 100f) / zoom;
+            var markerScreenScale = _settings.IconScale / _settings.Zoom;
             var markerRotation = _settings.RotateMap && _mapRect != null
                 ? Quaternion.Euler(0f, 0f, -_mapRect.localEulerAngles.z)
                 : Quaternion.identity;
@@ -698,16 +614,22 @@ namespace rancher_minimap
                 view.SetMapPosition(mapPosition);
                 view.SetIcon(marker, _markerSprite);
                 view.SetVisualTransform(markerRotation, markerScreenScale);
-                view.SetActive(true);
+                SetMarkerRootActive(view, true);
                 activeCount++;
             }
 
             foreach (var pair in _markerViews)
                 if (!alive.Contains(pair.Key))
-                    pair.Value.SetActive(false);
+                    SetMarkerRootActive(pair.Value, false);
 
-            Log.Every("markers-hud-" + _attachedMapKey, 4f,
-                $"markers: hud active={activeCount}/{markers.Count} map={_attachedMapKey} zoom={zoom:F2} rotate={_settings.RotateMap}");
+            Log.Every("markers-hud-" + _attachedMapKey, 10f,
+                $"markers: hud active={activeCount}/{markers.Count} map={_attachedMapKey} rotate={_settings.RotateMap}");
+        }
+
+        private static void SetMarkerRootActive(RuntimeMarkerView view, bool active)
+        {
+            if (view?.Root != null && view.Root.activeSelf != active)
+                view.Root.SetActive(active);
         }
 
         public bool TryEnsureMapVisual(MapDefinition mapDefinition)
@@ -784,18 +706,6 @@ namespace rancher_minimap
             return RuntimeMarkerView.Fallback(obj, rect, image);
         }
 
-        private void HideAllPlayerVisuals()
-        {
-            if (_playerBeaIcon != null)
-                _playerBeaIcon.enabled = false;
-            if (_playerViewCone != null)
-                _playerViewCone.enabled = false;
-            if (_playerFacingFrame != null)
-                _playerFacingFrame.enabled = false;
-            if (_playerFacingArrow != null)
-                _playerFacingArrow.enabled = false;
-        }
-
         private void TryAttachVanillaMapVisual(MapDefinition mapDefinition)
         {
             if (_mapRect == null || _instancedMapVisual != null)
@@ -806,14 +716,13 @@ namespace rancher_minimap
                 _attachedMapKey = MapObjectNames.MapKey(mapDefinition);
                 _attachedMapName = MapObjectNames.DescribeUnityObject(mapDefinition);
                 _attachedTemplateVersion = MapVisualCapture.TemplateVersionFor(mapDefinition);
-                _loggedAttachedLayout = false;
                 Log.Info("hud: attached map visual map=" + _attachedMapKey +
                          " name=" + _attachedMapName +
                          " templateVersion=" + _attachedTemplateVersion +
                          " geometry=" + MapObjectNames.DescribeGeometry(_mapGeometry));
                 ResetStaticMapVisualPreparation();
                 OrderMapSiblings();
-                EnsurePlayerMarkerVisual();
+                _playerMarker?.RefreshSprites();
             }
         }
 
@@ -891,9 +800,7 @@ namespace rancher_minimap
             _mapGeometry = MapGeometry.Empty;
             _attachedMapKey = "-";
             _attachedMapName = "-";
-            _loggedAttachedLayout = false;
-            _lastAppliedFogCloneKey = string.Empty;
-            _lastAppliedFogStateVersion = -1;
+            _lastAppliedFogStateKey = string.Empty;
             _attachedTemplateVersion = -1;
             ResetStaticMapVisualPreparation();
             _mapBackgroundOriginalAlpha.Clear();
@@ -908,186 +815,10 @@ namespace rancher_minimap
             return string.Equals(MapObjectNames.MapKey(mapDefinition), _attachedMapKey, StringComparison.Ordinal);
         }
 
-        private void EnsurePlayerMarkerVisual()
+
+        private void UpdatePlayerMarker(float yawUi)
         {
-            if (_playerBeaIcon == null)
-                return;
-
-            Sprite sprite;
-            Color color;
-            if (!MapVisualCapture.TryGetCapturedBeaIcon(out sprite, out color) || sprite == null)
-                return;
-
-            if (_playerBeaIcon.sprite != sprite)
-            {
-                _playerBeaIcon.sprite = sprite;
-                _playerBeaIcon.color = color;
-                _playerBeaIcon.enabled = true;
-                ApplyPlayerSpriteLayout();
-                ApplyCapturedFacingSprites();
-            }
-            else
-            {
-                _playerBeaIcon.enabled = true;
-                ApplyPlayerSpriteLayout();
-                ApplyCapturedFacingSprites();
-            }
-        }
-
-        private void ApplyPlayerSpriteLayout()
-        {
-            if (_playerMarkerRect == null)
-                return;
-
-            var baseSize = Mathf.Max(1f, Mathf.Min(_playerMarkerRect.rect.width, _playerMarkerRect.rect.height));
-
-            if (_playerViewConePivotRect != null)
-            {
-                UiRectTransforms.CenterOnParent(_playerViewConePivotRect, Vector2.zero);
-                _playerViewConePivotRect.SetAsFirstSibling();
-            }
-
-            if (_playerViewConeRect != null)
-            {
-                UiRectTransforms.AnchorAt(_playerViewConeRect, UiRectTransforms.Center, new Vector2(0.5f, 0f));
-                _playerViewConeRect.anchoredPosition = Vector2.zero;
-                var coneSize = GetPlayerConeSize(baseSize);
-                _playerViewConeRect.sizeDelta = coneSize;
-                _playerViewConeRect.localRotation = Quaternion.identity;
-            }
-
-            if (_playerFacingFramePivotRect != null)
-            {
-                UiRectTransforms.CenterOnParent(_playerFacingFramePivotRect, Vector2.zero);
-            }
-
-            if (_playerFacingFrameRect != null)
-            {
-                UiRectTransforms.AnchorAt(_playerFacingFrameRect, UiRectTransforms.Center, UiRectTransforms.Center);
-                _playerFacingFrameRect.anchoredPosition = new Vector2(
-                    0f,
-                    GetSpriteCircleCenterOffset(_playerFacingFrame != null ? _playerFacingFrame.sprite : null, baseSize));
-                _playerFacingFrameRect.sizeDelta = new Vector2(baseSize, baseSize);
-                _playerFacingFrameRect.localRotation = Quaternion.identity;
-                // Keep the view cone behind the frame and face.
-            }
-
-            if (_playerBeaRect != null)
-            {
-                var beaSize = Mathf.Clamp(baseSize * 0.56f, 18f, 42f);
-                UiRectTransforms.AnchorAt(_playerBeaRect, UiRectTransforms.Center, UiRectTransforms.Center);
-                _playerBeaRect.anchoredPosition = new Vector2(
-                    0f,
-                    GetSpriteCircleCenterOffset(_playerBeaIcon != null ? _playerBeaIcon.sprite : null, beaSize));
-                _playerBeaRect.sizeDelta = new Vector2(beaSize, beaSize);
-            }
-
-            if (_playerBeaRect != null)
-                _playerBeaRect.SetAsLastSibling();
-
-            if (_playerFacingArrowPivotRect != null)
-            {
-                UiRectTransforms.CenterOnParent(_playerFacingArrowPivotRect, Vector2.zero);
-            }
-
-            if (_playerFacingArrowRect != null)
-            {
-                UiRectTransforms.AnchorAt(_playerFacingArrowRect, UiRectTransforms.Center, UiRectTransforms.Center);
-                _playerFacingArrowRect.anchoredPosition = new Vector2(
-                    0f,
-                    GetSpriteCircleCenterOffset(_playerFacingArrow != null ? _playerFacingArrow.sprite : null, baseSize));
-                _playerFacingArrowRect.sizeDelta = new Vector2(baseSize, baseSize);
-                if (_playerFacingArrowPivotRect != null)
-                    _playerFacingArrowPivotRect.SetAsLastSibling();
-            }
-
-            if (_playerViewConePivotRect != null)
-                _playerViewConePivotRect.SetAsFirstSibling();
-            if (_playerBeaRect != null)
-                _playerBeaRect.SetAsLastSibling();
-        }
-
-        private Vector2 GetPlayerConeSize(float baseSize)
-        {
-            Sprite coneSprite;
-            Color coneColor;
-            Vector2 capturedSize;
-            if (!MapVisualCapture.TryGetCapturedPlayerCone(out coneSprite, out coneColor, out capturedSize))
-                return new Vector2(baseSize * 1.75f, baseSize * 1.75f);
-
-            var width = Mathf.Clamp(Mathf.Abs(capturedSize.x) > 1f ? Mathf.Abs(capturedSize.x) : baseSize * 1.75f, baseSize, baseSize * 3f);
-            var height = Mathf.Clamp(Mathf.Abs(capturedSize.y) > 1f ? Mathf.Abs(capturedSize.y) : baseSize * 1.75f, baseSize, baseSize * 3f);
-            var scale = baseSize / 64f;
-            return new Vector2(width * scale, height * scale);
-        }
-
-        private static float GetSpriteCircleCenterOffset(Sprite sprite, float drawnHeight)
-        {
-            if (sprite == null || sprite.rect.height <= 0f)
-                return 0f;
-
-            var drawnWidth = drawnHeight * (sprite.rect.width / sprite.rect.height);
-            // The circle occupies the bottom width x width portion of the full sprite.
-            // Move the sprite up so the circle center, not the full-rect center, sits on the marker anchor.
-            return (drawnHeight - drawnWidth) * 0.5f;
-        }
-
-        private void ApplyCapturedFacingSprites()
-        {
-            if (_playerFacingFrame == null || _playerFacingArrow == null)
-                return;
-
-            Sprite coneSprite;
-            Color coneColor;
-            Vector2 coneSize;
-            if (_playerViewCone != null && MapVisualCapture.TryGetCapturedPlayerCone(out coneSprite, out coneColor, out coneSize))
-            {
-                _playerViewCone.sprite = coneSprite;
-                _playerViewCone.color = coneColor;
-                _playerViewCone.enabled = true;
-            }
-            else if (_playerViewCone != null)
-            {
-                _playerViewCone.enabled = false;
-            }
-
-            Sprite frameSprite;
-            Sprite arrowSprite;
-            Color frameColor;
-            Color arrowColor;
-            if (!MapVisualCapture.TryGetCapturedPlayerFacing(out frameSprite, out frameColor, out arrowSprite, out arrowColor))
-            {
-                _playerFacingFrame.enabled = false;
-                _playerFacingArrow.enabled = false;
-                return;
-            }
-
-            if (frameSprite != null)
-            {
-                _playerFacingFrame.sprite = frameSprite;
-                _playerFacingFrame.color = frameColor;
-                _playerFacingFrame.enabled = true;
-            }
-            else
-            {
-                _playerFacingFrame.enabled = false;
-            }
-
-            if (arrowSprite != null)
-            {
-                _playerFacingArrow.sprite = arrowSprite;
-                _playerFacingArrow.color = arrowColor;
-                _playerFacingArrow.enabled = true;
-            }
-            else
-            {
-                _playerFacingArrow.enabled = false;
-            }
-        }
-
-        private void UpdatePlayerMarker(float yawUi, Vector2 playerLocal, float mapRotationZ, float zoom)
-        {
-            if (_playerMarkerRect == null || _playerLayer == null)
+            if (_playerLayer == null || _playerMarker == null)
                 return;
 
             _playerLayer.anchoredPosition = Vector2.zero;
@@ -1095,29 +826,31 @@ namespace rancher_minimap
             _playerLayer.localScale = Vector3.one;
             _playerLayer.localRotation = Quaternion.identity;
 
-            var markerScreenScale = Mathf.Clamp(_settings.IconScale, 0.01f, 100f);
-            _playerMarkerRect.anchoredPosition = Vector2.zero;
-            _playerMarkerRect.sizeDelta = new Vector2(64f, 64f) * markerScreenScale;
-            _playerMarkerRect.localScale = Vector3.one;
-            _playerMarkerRect.localRotation = Quaternion.identity;
-            ApplyPlayerSpriteLayout();
-
             var facingRotation = _settings.RotateMap
                 ? Quaternion.identity
                 : Quaternion.Euler(0f, 0f, yawUi);
 
-            if (_playerViewConePivotRect != null)
-                _playerViewConePivotRect.localRotation = facingRotation;
+            _playerMarker.UpdateLayout(_settings.IconScale, facingRotation);
+        }
 
-            if (_playerFacingFramePivotRect != null)
-                _playerFacingFramePivotRect.localRotation = facingRotation;
+        private void ApplyClipShape()
+        {
+            var circle = _settings.MapShape == MinimapMapShape.Circle;
 
-            if (_playerFacingArrowPivotRect != null)
-                _playerFacingArrowPivotRect.localRotation = facingRotation;
+            if (_rectMask != null)
+                _rectMask.enabled = !circle;
 
-            if (_playerBeaRect != null)
-                _playerBeaRect.localRotation = Quaternion.identity;
+            if (_shapeMask != null)
+            {
+                _shapeMask.enabled = circle;
+                _shapeMask.showMaskGraphic = false;
+            }
 
+            if (_shapeMaskImage != null)
+            {
+                _shapeMaskImage.enabled = circle;
+                _shapeMaskImage.SetVerticesDirty();
+            }
         }
 
         private float GetViewportEdgeOffsetPixels()
@@ -1170,11 +903,10 @@ namespace rancher_minimap
             if (Mathf.Abs(worldArea.width) <= 1f || Mathf.Abs(worldArea.height) <= 1f || Mathf.Abs(mapArea.width) <= 1f || Mathf.Abs(mapArea.height) <= 1f)
                 return Vector2.zero;
 
-            var u = Mathf.InverseLerp(worldArea.xMin, worldArea.xMax, world.x);
-            var v = Mathf.InverseLerp(worldArea.yMin, worldArea.yMax, world.z);
-            var x = mapArea.xMin + u * mapArea.width;
-            var y = mapArea.yMin + v * mapArea.height;
-            return new Vector2(x, y);
+            var normalized = new Vector2(
+                Mathf.InverseLerp(worldArea.xMin, worldArea.xMax, world.x),
+                Mathf.InverseLerp(worldArea.yMin, worldArea.yMax, world.z));
+            return LerpRect(mapArea, normalized);
         }
 
         private static Vector2 ProjectWorldToVanillaMapLocal(Vector3 world, Rect worldArea, Rect projectionMapArea, Rect clampArea)
@@ -1214,8 +946,16 @@ namespace rancher_minimap
             rect.sizeDelta = nativeMapSize;
         }
 
+        private static Vector2 LerpRect(Rect rect, Vector2 normalized)
+        {
+            return new Vector2(
+                Mathf.LerpUnclamped(rect.xMin, rect.xMax, normalized.x),
+                Mathf.LerpUnclamped(rect.yMin, rect.yMax, normalized.y));
+        }
+
         private static Vector2 RotatePoint(Vector2 point, float degrees)
         {
+            // Unity has Vector2.Lerp, but no Vector2.Rotate; direct sin/cos keeps this branch allocation-free.
             if (Mathf.Approximately(degrees, 0f))
                 return point;
 
@@ -1223,6 +963,191 @@ namespace rancher_minimap
             var sin = Mathf.Sin(radians);
             var cos = Mathf.Cos(radians);
             return new Vector2(point.x * cos - point.y * sin, point.x * sin + point.y * cos);
+        }
+
+
+        private sealed class PlayerMarkerView
+        {
+            private const float BasePixelSize = 64f;
+
+            private readonly PlayerImage _cone;
+            private readonly PlayerImage _frame;
+            private readonly PlayerImage _arrow;
+            private readonly PlayerImage _bea;
+
+            private Vector2 _capturedConeSize;
+
+            public readonly RectTransform Root;
+            private readonly RectTransform _facingRoot;
+
+            private PlayerMarkerView(RectTransform root, RectTransform facingRoot, PlayerImage cone, PlayerImage frame, PlayerImage arrow, PlayerImage bea)
+            {
+                Root = root;
+                _facingRoot = facingRoot;
+                _cone = cone;
+                _frame = frame;
+                _arrow = arrow;
+                _bea = bea;
+            }
+
+            public static PlayerMarkerView Create(Transform parent)
+            {
+                var root = CreateRectTransform("PlayerMarker", parent);
+                UiRectTransforms.CenterOnParent(root, Vector2.zero, new Vector2(BasePixelSize, BasePixelSize));
+
+                var facingRoot = CreateRectTransform("Facing", root);
+                UiRectTransforms.CenterOnParent(facingRoot, Vector2.zero);
+
+                var cone = PlayerImage.Create("ViewCone", facingRoot, new Vector2(0.5f, 0f));
+                var frame = PlayerImage.Create("FacingFrame", facingRoot, UiRectTransforms.Center);
+                var arrow = PlayerImage.Create("FacingArrow", facingRoot, UiRectTransforms.Center);
+                var bea = PlayerImage.Create("BeaIcon", root, UiRectTransforms.Center);
+
+                cone.Rect.SetAsFirstSibling();
+                bea.Rect.SetAsLastSibling();
+                return new PlayerMarkerView(root, facingRoot, cone, frame, arrow, bea);
+            }
+
+            public void RefreshSprites()
+            {
+                Sprite sprite;
+                Color color;
+                if (MapVisualCapture.TryGetCapturedBeaIcon(out sprite, out color))
+                    _bea.Set(sprite, color);
+                else
+                    _bea.SetEnabled(false);
+
+                Vector2 coneSize;
+                if (MapVisualCapture.TryGetCapturedPlayerCone(out sprite, out color, out coneSize))
+                {
+                    _capturedConeSize = coneSize;
+                    _cone.Set(sprite, color);
+                }
+                else
+                {
+                    _capturedConeSize = Vector2.zero;
+                    _cone.SetEnabled(false);
+                }
+
+                Sprite frameSprite;
+                Sprite arrowSprite;
+                Color frameColor;
+                Color arrowColor;
+                if (MapVisualCapture.TryGetCapturedPlayerFacing(out frameSprite, out frameColor, out arrowSprite, out arrowColor))
+                {
+                    _frame.Set(frameSprite, frameColor);
+                    _arrow.Set(arrowSprite, arrowColor);
+                }
+                else
+                {
+                    _frame.SetEnabled(false);
+                    _arrow.SetEnabled(false);
+                }
+
+            }
+
+            public void UpdateLayout(float iconScale, Quaternion facingRotation)
+            {
+                var markerSize = BasePixelSize * Mathf.Clamp(iconScale, 0.01f, 100f);
+                UiRectTransforms.CenterOnParent(Root, Vector2.zero, new Vector2(markerSize, markerSize));
+                UiRectTransforms.CenterOnParent(_facingRoot, Vector2.zero);
+                _facingRoot.localRotation = facingRotation;
+                ApplySpriteLayout();
+            }
+
+            private void ApplySpriteLayout()
+            {
+                var baseSize = Mathf.Max(1f, Mathf.Min(Root.rect.width, Root.rect.height));
+
+                LayoutCone(baseSize);
+                LayoutCentered(_frame, baseSize);
+                LayoutCentered(_arrow, baseSize);
+                LayoutCentered(_bea, baseSize * 0.56f);
+
+                _cone.Rect.SetAsFirstSibling();
+                _bea.Rect.SetAsLastSibling();
+            }
+
+            private void LayoutCone(float baseSize)
+            {
+                UiRectTransforms.AnchorAt(_cone.Rect, UiRectTransforms.Center, new Vector2(0.5f, 0f));
+                _cone.Rect.anchoredPosition = Vector2.zero;
+                _cone.Rect.sizeDelta = GetConeSize(baseSize);
+                _cone.Rect.localRotation = Quaternion.identity;
+            }
+
+            private static void LayoutCentered(PlayerImage image, float size)
+            {
+                UiRectTransforms.AnchorAt(image.Rect, UiRectTransforms.Center, UiRectTransforms.Center);
+                image.Rect.anchoredPosition = new Vector2(0f, GetSpriteCircleCenterOffset(image.Image.sprite, size));
+                image.Rect.sizeDelta = new Vector2(size, size);
+                image.Rect.localRotation = Quaternion.identity;
+            }
+
+            private Vector2 GetConeSize(float baseSize)
+            {
+                if (Mathf.Abs(_capturedConeSize.x) <= 1f || Mathf.Abs(_capturedConeSize.y) <= 1f)
+                    return new Vector2(baseSize * 1.75f, baseSize * 1.75f);
+
+                var width = Mathf.Clamp(Mathf.Abs(_capturedConeSize.x), baseSize, baseSize * 3f);
+                var height = Mathf.Clamp(Mathf.Abs(_capturedConeSize.y), baseSize, baseSize * 3f);
+                var scale = baseSize / BasePixelSize;
+                return new Vector2(width * scale, height * scale);
+            }
+
+            private static float GetSpriteCircleCenterOffset(Sprite sprite, float drawnHeight)
+            {
+                if (sprite == null || sprite.rect.height <= 0f)
+                    return 0f;
+
+                var drawnWidth = drawnHeight * (sprite.rect.width / sprite.rect.height);
+                return (drawnHeight - drawnWidth) * 0.5f;
+            }
+
+            private sealed class PlayerImage
+            {
+                public readonly RectTransform Rect;
+                public readonly Image Image;
+
+                private PlayerImage(RectTransform rect, Image image)
+                {
+                    Rect = rect;
+                    Image = image;
+                }
+
+                public static PlayerImage Create(string name, Transform parent, Vector2 pivot)
+                {
+                    var rect = CreateRectTransform(name, parent);
+                    UiRectTransforms.AnchorAt(rect, UiRectTransforms.Center, pivot);
+                    rect.anchoredPosition = Vector2.zero;
+                    rect.sizeDelta = new Vector2(BasePixelSize, BasePixelSize);
+
+                    var image = rect.gameObject.AddComponent<Image>();
+                    image.raycastTarget = false;
+                    image.maskable = true;
+                    image.preserveAspect = true;
+                    image.enabled = false;
+                    return new PlayerImage(rect, image);
+                }
+
+                public void Set(Sprite sprite, Color color)
+                {
+                    if (sprite == null)
+                    {
+                        SetEnabled(false);
+                        return;
+                    }
+
+                    Image.sprite = sprite;
+                    Image.color = color;
+                    Image.enabled = true;
+                }
+
+                public void SetEnabled(bool enabled)
+                {
+                    Image.enabled = enabled;
+                }
+            }
         }
 
 
@@ -1264,11 +1189,6 @@ namespace rancher_minimap
                     Object.Destroy(Root);
             }
 
-            public void SetActive(bool active)
-            {
-                if (Root != null && Root.activeSelf != active)
-                    Root.SetActive(active);
-            }
 
             public void SetMapPosition(Vector2 mapPosition)
             {

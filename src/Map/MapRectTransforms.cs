@@ -4,10 +4,6 @@ namespace rancher_minimap
 {
     /// <summary>
     /// RectTransform normalization helpers for cloned vanilla map UI.
-    ///
-    /// This intentionally lives outside MapProjection: MapProjection is pure world/map
-    /// coordinate math, while these helpers mutate Unity UI objects so cloned vanilla
-    /// map branches can be mounted into the minimap HUD predictably.
     /// </summary>
     internal static class MapRectTransforms
     {

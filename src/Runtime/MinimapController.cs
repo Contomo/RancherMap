@@ -4,20 +4,17 @@ using UnityEngine;
 namespace rancher_minimap
 {
     /// <summary>
-    /// Runtime state machine. It glues together services, projection, marker snapshots, and view.
+    /// Runtime state machine. It glues together services, marker snapshots, and view.
     /// No Harmony patch code belongs here.
     /// </summary>
     internal sealed class MinimapController(MinimapSettings settings) : IDisposable
     {
         private readonly MinimapSettings _settings = settings;
         private readonly GameServices _services = new GameServices();
-        private readonly MapProjection _projection = new MapProjection();
         private readonly MarkerSourceResolver _markers = new MarkerSourceResolver();
         private readonly MinimapHudView _view = new MinimapHudView(settings);
 
         private Vector3 _lastPlayerWorld;
-        private float _lastYaw;
-        private float _nextMapDefProbe;
         private bool _runtimeMotionInitialized;
         private float _smoothedPlanarSpeed;
         private float _smoothedRuntimeZoom;
@@ -50,21 +47,12 @@ namespace rancher_minimap
                 var currentWorld = pos.Value;
                 var runtimeZoom = UpdateRuntimeZoom(currentWorld);
                 _lastPlayerWorld = currentWorld;
-                _lastYaw = yaw;
-                _projection.Observe(_lastPlayerWorld);
-
                 _view.EnsureBuilt();
 
                 var observedMapDefinition = _services.TryGetMapDefinition();
                 if (observedMapDefinition != null)
                     _stableMapDefinition = observedMapDefinition;
                 var mapDefinition = _stableMapDefinition;
-
-                if (Time.realtimeSinceStartup >= _nextMapDefProbe)
-                {
-                    _nextMapDefProbe = Time.realtimeSinceStartup + 2.0f;
-                    _projection.UpdateAuthoredRect(mapDefinition);
-                }
 
                 bool hasMapVisual;
                 using (TimeTracker.Measure("hud.ensure-map-visual"))
@@ -83,12 +71,10 @@ namespace rancher_minimap
                         _markers.Clear("show-markers-off");
                 }
 
-                _projection.UpdateFromGeometry(_view.Geometry);
                 using (TimeTracker.Measure("hud.layout"))
-                    _view.UpdateLayout(_lastYaw, _lastPlayerWorld, runtimeZoom);
-                _projection.UpdateFromGeometry(_view.Geometry);
+                    _view.UpdateLayout(yaw, currentWorld, runtimeZoom);
                 using (TimeTracker.Measure("hud.markers"))
-                    _view.UpdateMarkers(markerEnabled ? _markers.Markers : Array.Empty<MarkerSnapshot>(), _projection);
+                    _view.UpdateMarkers(markerEnabled ? _markers.Markers : Array.Empty<MarkerSnapshot>());
             }
         }
 

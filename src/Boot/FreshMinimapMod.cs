@@ -54,6 +54,7 @@ namespace rancher_minimap
                         _optionsMenu.Install();
                 }
 
+
                 _controller?.Tick();
 
                 using (TimeTracker.Measure("map-capture.tick"))

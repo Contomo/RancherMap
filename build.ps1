@@ -98,6 +98,13 @@ $rspLines = @(
 )
 
 $rspLines += $references | ForEach-Object { "/reference:`"$_`"" }
+
+$optionsIconPath = Join-Path $projectRoot "assets\iconCategoryWorld.rgba"
+if (!(Test-Path $optionsIconPath)) {
+    throw "Required embedded options icon asset not found at $optionsIconPath"
+}
+$rspLines += "/resource:`"$optionsIconPath`",rancher_minimap.assets.iconCategoryWorld.rgba"
+
 $rspLines += $sources | ForEach-Object { "`"$_`"" }
 
 Set-Content -Path $responsePath -Value $rspLines -Encoding ASCII

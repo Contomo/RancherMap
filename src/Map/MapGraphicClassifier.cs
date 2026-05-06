@@ -5,6 +5,10 @@ using UnityEngine.UI;
 namespace rancher_minimap
 {
     internal static class MapGraphicClassifier
+    /// <summary>
+    /// Classifying what is what by doing the most advanced technique known in programming
+    /// that technique is called string comparison.
+    /// </summary>
     {
         public static bool IsMapBackgroundGraphic(Graphic graphic)
         {

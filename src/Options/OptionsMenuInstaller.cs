@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using HarmonyLib;
 using HarmonyInstance = HarmonyLib.Harmony;
 using Il2Cpp;
@@ -31,25 +30,22 @@ namespace rancher_minimap
     /// - OptionsItemCategory owns its own items list of OptionsItemDefinition rows.
     ///
     /// previously tried to mutate OptionsConfiguration through managed reflection.
-    /// failed cause IL2CPP wrappers only expose proxy bookkeeping fields to System.Reflection 
+    /// failed cause IL2CPP wrappers only expose proxy bookkeeping fields to System.Reflection
     /// thus now generated Il2CppMonomiPark.* wrapper types instead.
     /// </summary>
     internal sealed class OptionsMenuInstaller : IDisposable
     {
         private const int TargetRiderIndex = 6;
-        private const string CategoryName = "RancherMinimap";
         private const string ReferencePrefix = "setting.rancherminimap.";
 
         private static OptionsMenuInstaller Current;
-        private static readonly Dictionary<string, RancherMinimapOptionSpec> SpecsByReferenceId = new Dictionary<string, RancherMinimapOptionSpec>();
+        private static readonly Dictionary<string, IMinimapOption> OptionsByReferenceId = new Dictionary<string, IMinimapOption>();
 
         private readonly HarmonyInstance _harmony;
         private readonly MinimapSettings _settings;
-        private readonly List<RancherMinimapOptionSpec> _specs = new List<RancherMinimapOptionSpec>();
         private readonly List<Object> _createdObjects = new List<Object>();
 
         private bool _installed;
-        private bool _specsBuilt;
         private LocalizedString _categoryTitle;
         private Sprite _categoryIcon;
 
@@ -81,7 +77,7 @@ namespace rancher_minimap
 
         public void Dispose()
         {
-            SpecsByReferenceId.Clear();
+            OptionsByReferenceId.Clear();
 
             foreach (var obj in _createdObjects)
             {
@@ -165,19 +161,19 @@ namespace rancher_minimap
 
         private static bool ScriptedApplyPresetSelectionPrefix(ScriptedValuePresetOptionDefinition __instance, int index)
         {
-            if (!TryGetSpec(__instance?.ReferenceId, out var spec))
+            if (!TryGetOption(__instance?.ReferenceId, out var option))
                 return true;
 
-            spec.Apply(index);
+            option.ApplyIndex(index);
             return false;
         }
 
         private static bool ScriptedGetDefaultPresetIndexPrefix(ScriptedValuePresetOptionDefinition __instance, ref int __result)
         {
-            if (!TryGetSpec(__instance?.ReferenceId, out var spec))
+            if (!TryGetOption(__instance?.ReferenceId, out var option))
                 return true;
 
-            __result = spec.CurrentIndex();
+            __result = option.CurrentIndex();
             return false;
         }
 
@@ -186,7 +182,8 @@ namespace rancher_minimap
             if (configuration == null)
                 return;
 
-            EnsureSpecs();
+
+            EnsureLocalization();
 
             if (configuration.items == null)
             {
@@ -198,7 +195,7 @@ namespace rancher_minimap
             if (category == null)
             {
                 category = ScriptableObject.CreateInstance<OptionsItemCategory>();
-                category.name = CategoryName;
+                category.name = MinimapSettings.CategoryName;
                 category.items = new Il2CppSystem.Collections.Generic.List<OptionsItemDefinition>();
                 category._showRebindButton = false;
                 _createdObjects.Add(category);
@@ -217,70 +214,18 @@ namespace rancher_minimap
 
         }
 
-        private void EnsureSpecs()
+        private void EnsureLocalization()
         {
-            if (_specsBuilt)
+            if (_categoryTitle != null)
                 return;
 
-            _categoryTitle = Localized("Minimap", "category");
-
-            _specs.Add(RancherMinimapOptionSpec.Toggle(
-                "enabled", Localized(MinimapOptionText.EnabledLabel, "enabled"), Localized(MinimapOptionText.EnabledDescription, "enabled.desc"),
-                () => _settings.Enabled, v => _settings.Enabled = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Toggle(
-                "rotate", Localized(MinimapOptionText.RotateMapLabel, "rotate"), Localized(MinimapOptionText.RotateMapDescription, "rotate.desc"),
-                () => _settings.RotateMap, v => _settings.RotateMap = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Choice(
-                "size", Localized(MinimapOptionText.SizeLabel, "size"), Localized(MinimapOptionText.SizeDescription, "size.desc"),
-                new[] { 10f, 12.5f, 15f, 17.5f, 20f, 22.5f, 25f, 27.5f, 30f, 32.5f, 35f, 37.5f, 40f, 45f, 50f, 55f, 60f },
-                v => $"{v:0.#}%", () => _settings.SizePercent, v => _settings.SizePercent = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Choice(
-                "edge_offset", Localized(MinimapOptionText.EdgeOffsetLabel, "edge_offset"), Localized(MinimapOptionText.EdgeOffsetDescription, "edge_offset.desc"),
-                new[] { 0f, 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f, 10f, 11f, 12f, 13f, 14f, 15f },
-                v => $"{v:0}%", () => _settings.EdgeOffsetPercent, v => _settings.EdgeOffsetPercent = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Choice(
-                "zoom", Localized(MinimapOptionText.ZoomLabel, "zoom"), Localized(MinimapOptionText.ZoomDescription, "zoom.desc"),
-                new[] { 0.50f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f, 5.0f, 5.5f, 6.0f },
-                v => $"{v:0.##}x", () => _settings.Zoom, v => _settings.Zoom = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Choice(
-                "dynamic_zoom_max_out", Localized(MinimapOptionText.DynamicZoomAmountLabel, "dynamic_zoom_max_out"), Localized(MinimapOptionText.DynamicZoomAmountDescription, "dynamic_zoom_max_out.desc"),
-                new[] { 0.0f, 0.05f, 0.10f, 0.15f, 0.20f, 0.25f, 0.35f, 0.50f, 0.75f, 1.0f },
-                v => v <= 0f ? "Off" : $"{v:0.##}x", () => _settings.DynamicZoomMaxOut, v => _settings.DynamicZoomMaxOut = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Choice(
-                "opacity", Localized(MinimapOptionText.OpacityLabel, "opacity"), Localized(MinimapOptionText.OpacityDescription, "opacity.desc"),
-                new[] { 0.0f, 0.05f, 0.10f, 0.15f, 0.25f, 0.4f, 0.55f, 0.7f, 0.82f, 0.9f, 1.0f },
-                v => $"{v * 100f:0}%", () => _settings.Opacity, v => _settings.Opacity = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Choice(
-                "icon_scale", Localized(MinimapOptionText.IconScaleLabel, "icon_scale"), Localized(MinimapOptionText.IconScaleDescription, "icon_scale.desc"),
-                new[] { 0.10f, 0.20f, 0.33f, 0.50f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.5f, 5.0f, 7.5f, 10.0f },
-                v => $"{v:0.##}x", () => _settings.IconScale, v => _settings.IconScale = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Toggle(
-                "show_markers", Localized(MinimapOptionText.ShowMarkersLabel, "show_markers"), Localized(MinimapOptionText.ShowMarkersDescription, "show_markers.desc"),
-                () => _settings.ShowMarkers, v => _settings.ShowMarkers = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Toggle(
-                "show_map_background", Localized(MinimapOptionText.ShowMapBackgroundLabel, "show_map_background"), Localized(MinimapOptionText.ShowMapBackgroundDescription, "show_map_background.desc"),
-                () => _settings.ShowMapBackground, v => _settings.ShowMapBackground = v));
-
-            _specs.Add(RancherMinimapOptionSpec.Toggle(
-                "show_decorative_clouds", Localized(MinimapOptionText.ShowDecorativeCloudsLabel, "show_decorative_clouds"), Localized(MinimapOptionText.ShowDecorativeCloudsDescription, "show_decorative_clouds.desc"),
-                () => _settings.ShowDecorativeClouds, v => _settings.ShowDecorativeClouds = v));
-
-            _specsBuilt = true;
+            _categoryTitle = Localized(MinimapSettings.RiderTitle, "category");
         }
 
-        internal static bool TryGetSpec(string referenceId, out RancherMinimapOptionSpec spec)
+        internal static bool TryGetOption(string referenceId, out IMinimapOption option)
         {
-            spec = null;
-            return !string.IsNullOrWhiteSpace(referenceId) && SpecsByReferenceId.TryGetValue(referenceId, out spec);
+            option = null;
+            return !string.IsNullOrWhiteSpace(referenceId) && OptionsByReferenceId.TryGetValue(referenceId, out option);
         }
 
         private void RebuildRows(OptionsItemCategory category)
@@ -290,44 +235,42 @@ namespace rancher_minimap
 
             category.items.Clear();
 
-            foreach (var spec in _specs)
-            {
-                var definition = CreateDefinition(spec);
-                category.items.Add(definition);
-            }
+            foreach (var option in _settings.MenuOptions)
+                category.items.Add(CreateDefinition(option));
         }
 
         private bool CategoryMatches(OptionsItemCategory category)
         {
-            if (category?.items == null || category.items.Count != _specs.Count)
+            if (category?.items == null || category.items.Count != _settings.MenuOptions.Count)
                 return false;
 
-            for (var i = 0; i < _specs.Count; i++)
+            for (var i = 0; i < _settings.MenuOptions.Count; i++)
             {
                 var definition = category.items[i] as ScriptedValuePresetOptionDefinition;
-                if (definition == null || !string.Equals(definition.ReferenceId, ReferencePrefix + _specs[i].Id, StringComparison.Ordinal))
+                var option = _settings.MenuOptions[i];
+                if (definition == null || !string.Equals(definition.ReferenceId, ReferencePrefix + option.Id, StringComparison.Ordinal))
                     return false;
             }
 
             return true;
         }
 
-        private ScriptedValuePresetOptionDefinition CreateDefinition(RancherMinimapOptionSpec spec)
+        private ScriptedValuePresetOptionDefinition CreateDefinition(IMinimapOption option)
         {
             var template = Resources.FindObjectsOfTypeAll<ScriptedValuePresetOptionDefinition>().FirstOrDefault();
             if (template == null)
                 throw new InvalidOperationException("Could not find ScriptedValuePresetOptionDefinition template");
 
             var definition = ScriptableObject.CreateInstance<ScriptedValuePresetOptionDefinition>();
-            var referenceId = ReferencePrefix + spec.Id;
-            definition.name = "RancherMinimap_" + spec.Id;
+            var referenceId = ReferencePrefix + option.Id;
+            definition.name = "RancherMinimap_" + option.Id;
             definition._referenceId = referenceId;
-            definition._label = spec.Label;
-            definition._detailsText = spec.Details;
+            definition._label = Localized(option.Label, option.Id);
+            definition._detailsText = Localized(option.Description, option.Id + ".desc");
             definition._applyImmediately = true;
             definition._requireConfirmation = false;
             definition._wrapAround = false;
-            definition._defaultValueIndex = spec.CurrentIndex();
+            definition._defaultValueIndex = option.CurrentIndex();
             definition._isProfileSetting = true;
             definition._showTutorialDisclaimer = false;
             definition._optionsItemModels = new Il2CppSystem.Collections.Generic.List<PresetOptionsItemModel>();
@@ -336,11 +279,11 @@ namespace rancher_minimap
             definition._controlPrefab = template._controlPrefab;
             definition._confirmationPopupConfig = template._confirmationPopupConfig;
 
-            var presets = new Il2CppReferenceArray<ScriptedValuePresetOptionDefinition.ScriptedValuePreset>(spec.Count);
-            for (var i = 0; i < spec.Count; i++)
+            var presets = new Il2CppReferenceArray<ScriptedValuePresetOptionDefinition.ScriptedValuePreset>(option.ChoiceCount);
+            for (var i = 0; i < option.ChoiceCount; i++)
             {
                 var preset = new ScriptedValuePresetOptionDefinition.ScriptedValuePreset();
-                preset._presetLabel = spec.LabelForIndex(i);
+                preset._presetLabel = Localized(option.ChoiceLabel(i), option.Id + "." + i);
                 preset._referenceId = referenceId + ".preset." + i;
                 preset._scriptedBoolSettings = new Il2CppReferenceArray<ScriptedValuePresetOptionDefinition.ScriptedValueSetting<Il2CppMonomiPark.ScriptedValue.ScriptedBool, bool>>(0);
                 preset._scriptedFloatSettings = new Il2CppReferenceArray<ScriptedValuePresetOptionDefinition.ScriptedValueSetting<Il2CppMonomiPark.ScriptedValue.ScriptedFloat, float>>(0);
@@ -350,7 +293,7 @@ namespace rancher_minimap
             }
 
             definition._optionsPresets = presets;
-            SpecsByReferenceId[referenceId] = spec;
+            OptionsByReferenceId[referenceId] = option;
             _createdObjects.Add(definition);
             return definition;
         }
@@ -428,7 +371,7 @@ namespace rancher_minimap
 
         private bool IsOurCategory(OptionsItemCategory category)
         {
-            return category != null && category.name == CategoryName;
+            return category != null && category.name == MinimapSettings.CategoryName;
         }
 
         private OptionsItemCategory GetUiCategory(OptionsUIRoot root, int index)
@@ -455,16 +398,6 @@ namespace rancher_minimap
             }
         }
 
-        private static int IndexOf(Il2CppSystem.Collections.Generic.List<OptionsItemCategory> list, OptionsItemCategory category)
-        {
-            if (list == null || category == null)
-                return -1;
-
-            for (var i = 0; i < list.Count; i++)
-                if (list[i] == category)
-                    return i;
-            return -1;
-        }
 
         private static LocalizedString Localized(string text, string key)
         {
@@ -496,56 +429,11 @@ namespace rancher_minimap
             if (_categoryIcon != null)
                 return _categoryIcon;
 
-            var worldCategoryIcon = TryResolveNamedGameIcon("iconCategoryWorld", "options category world");
-            if (worldCategoryIcon != null)
-            {
-                _categoryIcon = worldCategoryIcon;
-                return _categoryIcon;
-            }
+            _categoryIcon = ModSpriteAssets.CreateIconCategoryWorld(_createdObjects);
+            if (_categoryIcon == null)
+                Log.Error("options: failed to create embedded iconCategoryWorld sprite");
 
-            _categoryIcon = SpriteFactory.RingSprite(new Color(0.25f, 0.9f, 0.75f, 0.95f), 48);
-            _categoryIcon.name = "RancherMinimapOptionsFallbackIcon";
-            _createdObjects.Add(_categoryIcon);
-            Log.Info("options: using generated fallback sprite for minimap rider icon");
             return _categoryIcon;
-        }
-
-        private Sprite TryResolveNamedGameIcon(string name, string logLabel)
-        {
-            try
-            {
-                foreach (var sprite in Resources.FindObjectsOfTypeAll<Sprite>())
-                {
-                    if (sprite != null && string.Equals(sprite.name, name, StringComparison.OrdinalIgnoreCase))
-                    {
-                        Log.Info("options: using in-game " + logLabel + " sprite for minimap rider icon");
-                        return sprite;
-                    }
-                }
-
-                foreach (var texture in Resources.FindObjectsOfTypeAll<Texture2D>())
-                {
-                    if (texture == null || !string.Equals(texture.name, name, StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    var sprite = Sprite.Create(
-                        texture,
-                        new Rect(0f, 0f, texture.width, texture.height),
-                        new Vector2(0.5f, 0.5f),
-                        100f);
-                    sprite.name = "RancherMinimapOptions_" + name;
-                    _createdObjects.Add(sprite);
-                    Log.Info("options: using in-game " + logLabel + " texture for minimap rider icon");
-                    return sprite;
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("options: failed to resolve in-game " + logLabel + " icon: " + ex.GetType().Name);
-                return null;
-            }
-
-            return null;
         }
 
         private static bool IsRancherDefinition(PresetOptionsItemDefinition definition)
@@ -560,101 +448,6 @@ namespace rancher_minimap
             {
                 return false;
             }
-        }
-    }
-
-    internal sealed class RancherMinimapOptionSpec
-    {
-        public readonly string Id;
-        public readonly LocalizedString Label;
-        public readonly LocalizedString Details;
-
-        private readonly LocalizedString[] _presetLabels;
-        private readonly Func<int> _getIndex;
-        private readonly Action<int> _applyIndex;
-
-        public int Count => _presetLabels.Length;
-
-        private RancherMinimapOptionSpec(string id, LocalizedString label, LocalizedString details, LocalizedString[] presetLabels, Func<int> getIndex, Action<int> applyIndex)
-        {
-            Id = id;
-            Label = label;
-            Details = details;
-            _presetLabels = presetLabels;
-            _getIndex = getIndex;
-            _applyIndex = applyIndex;
-        }
-
-        public static RancherMinimapOptionSpec Toggle(string id, LocalizedString label, LocalizedString details, Func<bool> getValue, Action<bool> setValue)
-        {
-            return new RancherMinimapOptionSpec(
-                id,
-                label,
-                details,
-                new[] { OptionsMenuText("Off", id + ".off"), OptionsMenuText("On", id + ".on") },
-                () => getValue() ? 1 : 0,
-                i => setValue(i > 0));
-        }
-
-        public static RancherMinimapOptionSpec Choice(string id, LocalizedString label, LocalizedString details, float[] values, Func<float, string> format, Func<float> getValue, Action<float> setValue)
-        {
-            var presetLabels = values.Select((v, i) => OptionsMenuText(format(v), id + "." + i)).ToArray();
-            return new RancherMinimapOptionSpec(
-                id,
-                label,
-                details,
-                presetLabels,
-                () => NearestIndex(values, getValue()),
-                i => setValue(values[Math.Max(0, Math.Min(values.Length - 1, i))]));
-        }
-
-        public int CurrentIndex()
-        {
-            var value = _getIndex();
-            if (value < 0)
-                return 0;
-            return value >= Count ? Count - 1 : value;
-        }
-
-        public void Apply(int index)
-        {
-            _applyIndex(Math.Max(0, Math.Min(Count - 1, index)));
-        }
-
-        public LocalizedString LabelForIndex(int index)
-        {
-            return _presetLabels[Math.Max(0, Math.Min(Count - 1, index))];
-        }
-
-        private static int NearestIndex(float[] values, float current)
-        {
-            var best = 0;
-            var bestDist = float.MaxValue;
-            for (var i = 0; i < values.Length; i++)
-            {
-                var dist = Math.Abs(values[i] - current);
-                if (dist < bestDist)
-                {
-                    best = i;
-                    bestDist = dist;
-                }
-            }
-            return best;
-        }
-
-        private static LocalizedString OptionsMenuText(string text, string key)
-        {
-            var table = LocalizationUtil.GetTable("UI") ?? LocalizationUtil.GetTable("Tutorial");
-            if (table == null)
-                throw new InvalidOperationException("Could not resolve localization table for option text");
-
-            var entry = table.GetEntry("rancherminimap." + key);
-            if (entry == null)
-                entry = table.AddEntry("rancherminimap." + key, text);
-            else
-                entry.Value = text;
-
-            return new LocalizedString(table.SharedData.TableCollectionName, entry.SharedEntry.Id);
         }
     }
 
