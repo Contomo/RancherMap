@@ -3,7 +3,7 @@ using HarmonyLib;
 using HarmonyInstance = HarmonyLib.Harmony;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(rancher_minimap.Rancher_Minimap), "Rancher Minimap", "1.2.0", "Rancher Minimap")]
+[assembly: MelonInfo(typeof(rancher_minimap.Rancher_Minimap), "Rancher Minimap", "1.2.0", "Contomo")]
 [assembly: MelonGame("MonomiPark", "SlimeRancher2")]
 
 namespace rancher_minimap

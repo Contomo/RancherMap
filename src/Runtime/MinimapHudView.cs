@@ -692,7 +692,9 @@ namespace rancher_minimap
                 var visualRect = visual.GetComponent<RectTransform>();
                 if (visualRect != null)
                 {
-                    UiRectTransforms.CenterOnParent(visualRect, Vector2.zero, marker.Size);
+                    var capturedSize = ResolveRectSize(visualRect, marker.Size);
+                    UiRectTransforms.CenterOnParent(visualRect, Vector2.zero, capturedSize);
+                    visualRect.localScale = Vector3.one * GetUniformScale(capturedSize, marker.Size);
                 }
 
                 return RuntimeMarkerView.ClonedVisual(obj, rect, visual, marker.VisualTemplate);
@@ -704,6 +706,34 @@ namespace rancher_minimap
             image.raycastTarget = false;
             image.maskable = true;
             return RuntimeMarkerView.Fallback(obj, rect, image);
+        }
+
+        private static Vector2 ResolveRectSize(RectTransform rect, Vector2 fallback)
+        {
+            if (TryGetValidSize(rect != null ? rect.rect.size : Vector2.zero, out var rectSize))
+                return rectSize;
+
+            if (TryGetValidSize(rect != null ? rect.sizeDelta : Vector2.zero, out var sizeDelta))
+                return sizeDelta;
+
+            if (TryGetValidSize(fallback, out var fallbackSize))
+                return fallbackSize;
+
+            return new Vector2(32f, 32f);
+        }
+
+        private static bool TryGetValidSize(Vector2 size, out Vector2 absoluteSize)
+        {
+            absoluteSize = new Vector2(Mathf.Abs(size.x), Mathf.Abs(size.y));
+            return absoluteSize.x >= 1f && absoluteSize.y >= 1f;
+        }
+
+        private static float GetUniformScale(Vector2 sourceSize, Vector2 targetSize)
+        {
+            var source = new Vector2(Mathf.Max(1f, Mathf.Abs(sourceSize.x)), Mathf.Max(1f, Mathf.Abs(sourceSize.y)));
+            var target = new Vector2(Mathf.Max(1f, Mathf.Abs(targetSize.x)), Mathf.Max(1f, Mathf.Abs(targetSize.y)));
+            var ratio = Vector2.Scale(target, new Vector2(1f / source.x, 1f / source.y));
+            return Mathf.Clamp(Mathf.Min(ratio.x, ratio.y), 0.01f, 100f);
         }
 
         private void TryAttachVanillaMapVisual(MapDefinition mapDefinition)

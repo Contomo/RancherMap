@@ -88,6 +88,7 @@ namespace rancher_minimap
                 return;
 
             _nextSummaryAt = now + 5.0f;
+            var rows = new List<string[]>();
             foreach (var pair in Buckets)
             {
                 var bucket = pair.Value;
@@ -95,13 +96,24 @@ namespace rancher_minimap
                     continue;
 
                 var averageMs = bucket.TotalMs / bucket.Count;
-                Log.Info("perf: " + pair.Key +
-                         " count=" + bucket.Count +
-                         " avgMs=" + averageMs.ToString("F3") +
-                         " maxMs=" + bucket.MaxMs.ToString("F3") +
-                         " slow>=" + _slowThresholdMs.ToString("F2") + "ms=" + bucket.SlowCount);
+                rows.Add(new[]
+                {
+                    pair.Key,
+                    bucket.Count.ToString(),
+                    averageMs.ToString("F3"),
+                    bucket.MaxMs.ToString("F3"),
+                    bucket.SlowCount.ToString()
+                });
                 bucket.Clear();
             }
+
+            if (rows.Count == 0)
+                return;
+
+            var builder = new System.Text.StringBuilder();
+            builder.Append("perf: summary slow>=").Append(_slowThresholdMs.ToString("F2")).Append("ms");
+            DiagnosticTable.Append(builder, new[] { "scope", "count", "avgMs", "maxMs", "slow" }, rows, maxCellLength: 40);
+            Log.Info(builder.ToString());
         }
 
         private static void Record(string name, double elapsedMs)

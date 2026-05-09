@@ -263,7 +263,7 @@ namespace rancher_minimap
                 }
             }
 
-            if (changed > 0 || lineGraphics > 0 || splines > 0 || branches > 0)
+            if (changed > 0)
             {
                 Log.Info("map-capture: portal line renderer=hard-disabled" +
                          " changed=" + changed +

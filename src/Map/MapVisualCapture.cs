@@ -26,6 +26,8 @@ namespace rancher_minimap
     /// </summary>
     internal sealed class MapVisualCapture
     {
+        private const float CapturedMarkerVisualSize = 48f;
+
         private static MapVisualCapture Current;
         private readonly HarmonyInstance _harmony;
         private readonly MinimapSettings _settings;
@@ -1636,6 +1638,7 @@ namespace rancher_minimap
 
             var sectionRect = sectionObject.GetComponent<RectTransform>();
             var markers = new List<MarkerSnapshot>();
+            var markerSizeDiagnostics = new List<MarkerVisualDiagnostics.MarkerSizeSample>();
 
             // First pass: vanilla MapUI normally instantiates each marker as a root under
             // _mapMarkerSection. Capture those roots only; the snapshot keeps visuals, not live marker controllers.
@@ -1645,7 +1648,7 @@ namespace rancher_minimap
                 {
                     var child = sectionRect.GetChild(i) as RectTransform;
                     if (child != null)
-                        TryAddCapturedMapUiMarker(child, markers, source);
+                        TryAddCapturedMapUiMarker(child, markers, markerSizeDiagnostics, source);
                 }
             }
 
@@ -1660,12 +1663,14 @@ namespace rancher_minimap
                     if (!HasComponentName(rect.gameObject, "MapMarker"))
                         continue;
 
-                    TryAddCapturedMapUiMarker(rect, markers, source);
+                    TryAddCapturedMapUiMarker(rect, markers, markerSizeDiagnostics, source);
                 }
             }
 
             if (string.IsNullOrEmpty(mapKey))
                 mapKey = "-";
+
+            MarkerVisualDiagnostics.LogCapturedMarkerSizes(_settings, mapKey, source, markerSizeDiagnostics);
 
             var record = GetOrCreateRecord(mapKey);
             if (ShouldPreserveExistingMarkerCache(record.Markers, markers, source))
@@ -1703,7 +1708,7 @@ namespace rancher_minimap
             return captured.Count < Math.Max(4, existing.Count / 4);
         }
 
-        private void TryAddCapturedMapUiMarker(RectTransform rect, List<MarkerSnapshot> markers, string source)
+        private void TryAddCapturedMapUiMarker(RectTransform rect, List<MarkerSnapshot> markers, List<MarkerVisualDiagnostics.MarkerSizeSample> sizeDiagnostics, string source)
         {
             if (rect == null || markers == null)
                 return;
@@ -1724,25 +1729,43 @@ namespace rancher_minimap
 
             var visualTemplate = CloneMarkerVisualTemplate(rect, id, clean, source);
             var size = visualTemplate != null
-                ? RootMarkerSize(rect, icon.Size)
+                ? new Vector2(CapturedMarkerVisualSize, CapturedMarkerVisualSize)
                 : icon.Size;
+            AddMarkerSizeDiagnostic(sizeDiagnostics, rect, id, clean, visible, pos, icon.Size, size, visualTemplate != null, path);
 
             markers.Add(new MarkerSnapshot(id, pos, clean, visible, icon.Sprite, icon.Color, size, visualTemplate: visualTemplate));
         }
 
-        private static Vector2 RootMarkerSize(RectTransform root, Vector2 fallback)
+        private static void AddMarkerSizeDiagnostic(
+            List<MarkerVisualDiagnostics.MarkerSizeSample> diagnostics,
+            RectTransform rect,
+            int id,
+            string kind,
+            bool visible,
+            Vector2 mapPosition,
+            Vector2 iconSize,
+            Vector2 storedSize,
+            bool hasVisualTemplate,
+            string path)
         {
-            if (root == null)
-                return fallback;
+            if (diagnostics == null || rect == null)
+                return;
 
-            var width = Mathf.Abs(root.rect.width);
-            var height = Mathf.Abs(root.rect.height);
-            if (width < 1f || height < 1f)
-                return fallback;
-
-            return new Vector2(width, height);
+            var rootRect = rect.rect;
+            diagnostics.Add(new MarkerVisualDiagnostics.MarkerSizeSample(
+                id,
+                kind,
+                visible,
+                hasVisualTemplate,
+                mapPosition,
+                new Vector2(rootRect.width, rootRect.height),
+                rect.sizeDelta,
+                rect.localScale,
+                rect.lossyScale,
+                iconSize,
+                storedSize,
+                path));
         }
-
 
         private GameObject CloneMarkerVisualTemplate(RectTransform source, int markerId, string markerKind, string sourceLabel)
         {

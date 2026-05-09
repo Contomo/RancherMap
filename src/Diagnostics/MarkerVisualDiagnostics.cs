@@ -15,8 +15,12 @@ namespace rancher_minimap
 #if RMM_DIAGNOSTICS
         private const int MaxDetailedImages = 14;
         private const int MaxEventsPerStage = 32;
+        private const int MarkerSizeSampleRows = 5;
+        private const int MaxSizeTables = 24;
         private static readonly HashSet<string> LoggedSignatures = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> LoggedSizeSignatures = new HashSet<string>(StringComparer.Ordinal);
         private static readonly Dictionary<string, int> StageEventCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        private static int SizeTableCount;
 
         public static void LogSource(MinimapSettings settings, RectTransform sourceRoot, int markerId, string markerKind, string source)
         {
@@ -31,6 +35,51 @@ namespace rancher_minimap
         public static void LogRuntimeInstance(MinimapSettings settings, MarkerSnapshot marker, GameObject root, string source)
         {
             LogRoot(settings, "runtime-instance", marker.Id, marker.Kind, root, source);
+        }
+
+        public static void LogCapturedMarkerSizes(
+            MinimapSettings settings,
+            string mapKey,
+            string source,
+            IReadOnlyList<MarkerSizeSample> markers)
+        {
+            if (!IsEnabled(settings) || markers == null || markers.Count == 0)
+                return;
+
+            var signature = string.Join("|",
+                mapKey ?? "-",
+                source ?? "-",
+                markers.Count.ToString(),
+                SignatureOf(markers[0]),
+                SignatureOf(markers[markers.Count / 2]),
+                SignatureOf(markers[markers.Count - 1]));
+
+            if (!LoggedSizeSignatures.Add(signature))
+                return;
+
+            if (SizeTableCount >= MaxSizeTables)
+            {
+                if (SizeTableCount == MaxSizeTables)
+                    Log.Info("marker-size: table cap reached; suppressing further marker size dumps");
+                SizeTableCount++;
+                return;
+            }
+
+            SizeTableCount++;
+
+            var rows = BuildSampleRows(markers, MarkerSizeSampleRows);
+            var builder = new StringBuilder();
+            builder.Append("marker-size: capture sample total=")
+                .Append(markers.Count)
+                .Append(" source=")
+                .Append(string.IsNullOrEmpty(source) ? "-" : source)
+                .Append(" map=")
+                .Append(string.IsNullOrEmpty(mapKey) ? "-" : mapKey);
+            DiagnosticTable.Append(builder,
+                new[] { "idx", "id", "kind", "vis", "visual", "mapPos", "root/icon/stored", "scale local/lossy", "path" },
+                rows,
+                maxCellLength: 56);
+            Log.Info(builder.ToString());
         }
 
         private static void LogRoot(MinimapSettings settings, string stage, int markerId, string markerKind, GameObject root, string source)
@@ -169,6 +218,105 @@ namespace rancher_minimap
             return builder.ToString();
         }
 
+        private static string FormatSize(Vector2 value)
+        {
+            return value.x.ToString("F1") + "x" + value.y.ToString("F1");
+        }
+
+        private static string FormatVector3(Vector3 value)
+        {
+            return value.x.ToString("F2") + "," + value.y.ToString("F2") + "," + value.z.ToString("F2");
+        }
+
+        private static List<string[]> BuildSampleRows(IReadOnlyList<MarkerSizeSample> markers, int sampleCount)
+        {
+            var rows = new List<string[]>();
+            if (markers == null || markers.Count == 0)
+                return rows;
+
+            sampleCount = Math.Max(1, sampleCount);
+            var seen = new HashSet<int>();
+            for (var sample = 0; sample < sampleCount; sample++)
+            {
+                var index = sampleCount == 1 || markers.Count == 1
+                    ? 0
+                    : Mathf.RoundToInt(sample * (markers.Count - 1f) / (sampleCount - 1f));
+
+                if (!seen.Add(index))
+                    continue;
+
+                var marker = markers[index];
+                rows.Add(new[]
+                {
+                    index.ToString(),
+                    marker.Id.ToString(),
+                    string.IsNullOrEmpty(marker.Kind) ? "-" : marker.Kind,
+                    marker.Visible ? "Y" : "N",
+                    marker.HasVisualTemplate ? "template" : "sprite",
+                    FormatSize(marker.MapPosition),
+                    FormatSize(marker.RootRectSize) + "/" + FormatSize(marker.IconSize) + "/" + FormatSize(marker.StoredSize),
+                    FormatVector3(marker.RootLocalScale) + "/" + FormatVector3(marker.RootLossyScale),
+                    string.IsNullOrEmpty(marker.Path) ? "-" : marker.Path
+                });
+            }
+
+            return rows;
+        }
+
+        private static string SignatureOf(MarkerSizeSample marker)
+        {
+            return marker.Id + ":" +
+                   marker.Kind + ":" +
+                   FormatSize(marker.RootRectSize) + ":" +
+                   FormatSize(marker.IconSize) + ":" +
+                   FormatSize(marker.StoredSize) + ":" +
+                   (marker.HasVisualTemplate ? "template" : "sprite");
+        }
+
+        public readonly struct MarkerSizeSample
+        {
+            public readonly int Id;
+            public readonly string Kind;
+            public readonly bool Visible;
+            public readonly bool HasVisualTemplate;
+            public readonly Vector2 MapPosition;
+            public readonly Vector2 RootRectSize;
+            public readonly Vector2 RootSizeDelta;
+            public readonly Vector3 RootLocalScale;
+            public readonly Vector3 RootLossyScale;
+            public readonly Vector2 IconSize;
+            public readonly Vector2 StoredSize;
+            public readonly string Path;
+
+            public MarkerSizeSample(
+                int id,
+                string kind,
+                bool visible,
+                bool hasVisualTemplate,
+                Vector2 mapPosition,
+                Vector2 rootRectSize,
+                Vector2 rootSizeDelta,
+                Vector3 rootLocalScale,
+                Vector3 rootLossyScale,
+                Vector2 iconSize,
+                Vector2 storedSize,
+                string path)
+            {
+                Id = id;
+                Kind = kind;
+                Visible = visible;
+                HasVisualTemplate = hasVisualTemplate;
+                MapPosition = mapPosition;
+                RootRectSize = rootRectSize;
+                RootSizeDelta = rootSizeDelta;
+                RootLocalScale = rootLocalScale;
+                RootLossyScale = rootLossyScale;
+                IconSize = iconSize;
+                StoredSize = storedSize;
+                Path = path;
+            }
+        }
+
         private static bool TryReserveStageEvent(string stage)
         {
             if (string.IsNullOrEmpty(stage))
@@ -288,6 +436,12 @@ namespace rancher_minimap
         public static void LogSource(MinimapSettings settings, RectTransform sourceRoot, int markerId, string markerKind, string source) { }
         public static void LogCloneStage(MinimapSettings settings, string stage, int markerId, string markerKind, GameObject root, string source) { }
         public static void LogRuntimeInstance(MinimapSettings settings, MarkerSnapshot marker, GameObject root, string source) { }
+        public static void LogCapturedMarkerSizes(MinimapSettings settings, string mapKey, string source, IReadOnlyList<MarkerSizeSample> markers) { }
+
+        public readonly struct MarkerSizeSample
+        {
+            public MarkerSizeSample(int id, string kind, bool visible, bool hasVisualTemplate, Vector2 mapPosition, Vector2 rootRectSize, Vector2 rootSizeDelta, Vector3 rootLocalScale, Vector3 rootLossyScale, Vector2 iconSize, Vector2 storedSize, string path) { }
+        }
 #endif
     }
 }
