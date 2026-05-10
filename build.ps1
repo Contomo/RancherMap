@@ -105,6 +105,12 @@ if (!(Test-Path $optionsIconPath)) {
 }
 $rspLines += "/resource:`"$optionsIconPath`",rancher_minimap.assets.iconCategoryWorld.rgba"
 
+$starlightIconPath = Join-Path $projectRoot "assets\iconCategoryWorld.png"
+if (!(Test-Path $starlightIconPath)) {
+    throw "Required embedded Starlight icon asset not found at $starlightIconPath"
+}
+$rspLines += "/resource:`"$starlightIconPath`",RancherMinimap.icon.png"
+
 $rspLines += $sources | ForEach-Object { "`"$_`"" }
 
 Set-Content -Path $responsePath -Value $rspLines -Encoding ASCII

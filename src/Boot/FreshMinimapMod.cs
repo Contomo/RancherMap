@@ -1,10 +1,13 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using HarmonyInstance = HarmonyLib.Harmony;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(rancher_minimap.Rancher_Minimap), "Rancher Minimap", "1.2.0", "Contomo")]
+[assembly: MelonInfo(typeof(rancher_minimap.Rancher_Minimap), "Rancher Minimap", "1.2.3", "Contomo")]
 [assembly: MelonGame("MonomiPark", "SlimeRancher2")]
+[assembly: AssemblyDescription("Standalone minimap overlay for Slime Rancher 2.")]
+[assembly: AssemblyMetadata("display_version", "1.2.3")]
 
 namespace rancher_minimap
 {
@@ -20,7 +23,9 @@ namespace rancher_minimap
         private OptionsMenuInstaller _optionsMenu;
         private MinimapController _controller;
         private MapVisualCapture _mapVisualCapture;
+        private StarlightCompat _starlightCompat;
         private float _nextOptionsInstallProbe;
+        private float _nextStarlightCompatProbe;
 
         public override void OnInitializeMelon()
         {
@@ -30,6 +35,7 @@ namespace rancher_minimap
             _harmony = new HarmonyInstance("sr2.rancher_minimap");
 
             _optionsMenu = new OptionsMenuInstaller(_harmony, _settings);
+            _starlightCompat = new StarlightCompat(_settings);
             _mapVisualCapture = new MapVisualCapture(_harmony, _settings);
             _mapVisualCapture.Install();
             _controller = new MinimapController(_settings);
@@ -54,6 +60,11 @@ namespace rancher_minimap
                         _optionsMenu.Install();
                 }
 
+                if (_starlightCompat != null && !_starlightCompat.IsRegistered && UnityEngine.Time.realtimeSinceStartup >= _nextStarlightCompatProbe)
+                {
+                    _nextStarlightCompatProbe = UnityEngine.Time.realtimeSinceStartup + 1.0f;
+                    _starlightCompat.TryRegister();
+                }
 
                 _controller?.Tick();
 

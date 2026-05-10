@@ -16,10 +16,12 @@ namespace rancher_minimap
         string Label { get; }
         string Description { get; }
         bool ShowInMenu { get; }
+        MelonPreferences_Entry PreferenceEntry { get; }
         int ChoiceCount { get; }
         string ChoiceLabel(int index);
         int CurrentIndex();
         void ApplyIndex(int index);
+        void NormalizeStoredValue();
     }
 
     internal readonly struct MinimapOptionChoice<TValue>
@@ -48,20 +50,13 @@ namespace rancher_minimap
         public string Label { get; }
         public string Description { get; }
         public bool ShowInMenu { get; }
+        public MelonPreferences_Entry PreferenceEntry => _entry;
         public int ChoiceCount => _choices.Length;
 
         public TValue Value
         {
             get => _normalize(_read(_entry.Value));
-            set
-            {
-                var stored = _write(_normalize(value));
-                if (EqualityComparer<TStored>.Default.Equals(_entry.Value, stored))
-                    return;
-
-                _entry.Value = stored;
-                _markDirty();
-            }
+            set => StoreNormalizedValue(_write(_normalize(value)));
         }
 
         public MinimapOption(
@@ -97,7 +92,7 @@ namespace rancher_minimap
             _write = write ?? (v => (TStored)(object)v);
             _normalize = normalize ?? (v => v);
             _indexOf = indexOf;
-            _entry = category.CreateEntry(id, defaultStoredValue, Label);
+            _entry = (MelonPreferences_Entry<TStored>)category.CreateEntry(id, defaultStoredValue, Label, !showInMenu);
         }
 
         public string ChoiceLabel(int index)
@@ -132,6 +127,32 @@ namespace rancher_minimap
                 return;
 
             Value = _choices[ClampIndex(index)].Value;
+        }
+
+        public void NormalizeStoredValue()
+        {
+            StoreNormalizedValue(_write(_normalize(_read(ReadEditedStoredValue()))));
+        }
+
+        private TStored ReadEditedStoredValue()
+        {
+            return _entry.BoxedEditedValue is TStored edited
+                ? edited
+                : _entry.Value;
+        }
+
+        private void StoreNormalizedValue(TStored stored)
+        {
+            var valueChanged = !EqualityComparer<TStored>.Default.Equals(_entry.Value, stored);
+            var editedChanged = !(_entry.BoxedEditedValue is TStored edited)
+                || !EqualityComparer<TStored>.Default.Equals(edited, stored);
+
+            if (!valueChanged && !editedChanged)
+                return;
+
+            _entry.Value = stored;
+            _entry.BoxedEditedValue = stored;
+            _markDirty();
         }
 
         private int ClampIndex(int index)
