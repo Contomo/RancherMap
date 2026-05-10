@@ -115,7 +115,9 @@ namespace rancher_minimap
             TryPatch(typeof(Sr2MapUI), "HandleMapPageTabbed", null, nameof(MapUIHandleMapPageTabbedPostfix));
             TryPatch(typeof(Sr2MapUI), "OpenPlayerCurrentMap", null, nameof(MapUIOpenPlayerCurrentMapPostfix));
             TryPatch(typeof(Sr2MapUI), "OpenMap", null, nameof(MapUIOpenMapPostfix));
-            TryPatch(typeof(Sr2MapUI), "OnCloseInput", null, nameof(MapUIOnCloseInputPostfix));
+            // god damn fucking house shit routes same as closing the stupid map
+            // TryPatch(typeof(Sr2MapUI), "OnCloseInput", null, nameof(MapUIOnCloseInputPostfix));
+
             TryPatch(typeof(MapDirector), "NotifyZoneUnlocked", null, nameof(MapDirectorNotifyZoneUnlockedPostfix));
             TryPatch(typeof(MapDirector), "RegisterMapUnlockAnimation", null, nameof(MapDirectorRegisterMapUnlockAnimationPostfix));
 
@@ -447,10 +449,10 @@ namespace rancher_minimap
             Current?.ObserveMapUI("MapUI.OpenMap.Postfix", __instance, mapDefinition);
         }
 
-        private static void MapUIOnCloseInputPostfix(Sr2MapUI __instance)
-        {
-            Current?.CancelPendingDelayedVisualCapture("MapUI.OnCloseInput.Postfix", __instance);
-        }
+        // private static void MapUIOnCloseInputPostfix(Sr2MapUI __instance)
+        // {
+        //     Current?.CancelPendingDelayedVisualCapture("MapUI.OnCloseInput.Postfix", __instance);
+        // }
 
         private static void MapDirectorNotifyZoneUnlockedPostfix(MapDirector __instance, object elementEvent, bool forceOpenMap, float delaySeconds)
         {
@@ -675,9 +677,11 @@ namespace rancher_minimap
             _pendingDelayedVisualRoot = visualRoot;
             _pendingDelayedVisualMapKey = mapKey;
             _pendingDelayedVisualSource = source;
-            _pendingDelayedVisualCaptureAt = Time.realtimeSinceStartup + 0.10f;
+            _pendingDelayedVisualCaptureAt = Time.realtimeSinceStartup + 0.025f;
         }
 
+        /*
+        TODO: make this like, not this delayed capture will now mess up and grab fucked fog states i guess?
         private void CancelPendingDelayedVisualCapture(string reason, Sr2MapUI mapUi)
         {
             if (_pendingDelayedVisualCaptureAt <= 0f)
@@ -721,6 +725,7 @@ namespace rancher_minimap
 
             Log.Every("map-capture-delayed-visual-cancel", 2f, $"map-capture: canceled delayed visual capture reason={reason} map={mapKey} source={source}");
         }
+        */
 
         private void RefreshDynamicTemplateState()
         {
